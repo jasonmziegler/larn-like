@@ -1,0 +1,16 @@
+{
+  "extends": "../../packages/config/typescript/react.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "types": ["vite/client"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "tests"],
+  "references": [
+    {
+      "path": "../../packages/shared"
+    }
+  ]
+}
