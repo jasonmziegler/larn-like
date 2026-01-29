@@ -1,4 +1,5 @@
 import { CanvasRenderer } from './rendering/CanvasRenderer';
+import { TitleScreen } from './ui/TitleScreen';
 import { GAME_CONSTANTS, MONSTER_DEFINITIONS } from '@larn-like/shared';
 
 // =============================================================================
@@ -365,54 +366,70 @@ function render(renderer: CanvasRenderer, state: GameState): void {
 // =============================================================================
 
 function init(): void {
-  console.log('Initializing Larn-Like Dungeon Crawler Prototype...');
+  console.log('Initializing Larn-Like Dungeon Crawler...');
 
   const renderer = new CanvasRenderer('game-canvas');
-  let state = initGame();
+  const titleScreen = new TitleScreen(renderer);
+  let gameInputHandler: ((e: KeyboardEvent) => void) | null = null;
 
-  // Initial render
-  render(renderer, state);
-
-  // Input handling
-  document.addEventListener('keydown', (e: KeyboardEvent) => {
-    let dx = 0;
-    let dy = 0;
-
-    switch (e.key.toLowerCase()) {
-      case 'w':
-      case 'arrowup':
-        dy = -1;
-        break;
-      case 's':
-      case 'arrowdown':
-        dy = 1;
-        break;
-      case 'a':
-      case 'arrowleft':
-        dx = -1;
-        break;
-      case 'd':
-      case 'arrowright':
-        dx = 1;
-        break;
-      case 'r':
-        // Restart game
-        state = initGame();
-        break;
-      default:
-        return; // Don't prevent default for other keys
+  function showTitleScreen(): void {
+    // Remove dungeon input handler if active
+    if (gameInputHandler) {
+      document.removeEventListener('keydown', gameInputHandler);
+      gameInputHandler = null;
     }
+    titleScreen.show(startGame);
+  }
 
-    e.preventDefault();
-
-    if (dx !== 0 || dy !== 0) {
-      tryMove(state, dx, dy);
-    }
-
+  function startGame(): void {
+    const state = initGame();
     render(renderer, state);
-  });
 
-  console.log('Game ready! Use WASD or Arrow keys to move.');
+    gameInputHandler = (e: KeyboardEvent) => {
+      let dx = 0;
+      let dy = 0;
+
+      switch (e.key.toLowerCase()) {
+        case 'w':
+        case 'arrowup':
+          dy = -1;
+          break;
+        case 's':
+        case 'arrowdown':
+          dy = 1;
+          break;
+        case 'a':
+        case 'arrowleft':
+          dx = -1;
+          break;
+        case 'd':
+        case 'arrowright':
+          dx = 1;
+          break;
+        case 'r':
+          if (state.gameOver) {
+            showTitleScreen();
+            return;
+          }
+          break;
+        default:
+          return;
+      }
+
+      e.preventDefault();
+
+      if (dx !== 0 || dy !== 0) {
+        tryMove(state, dx, dy);
+      }
+
+      render(renderer, state);
+    };
+
+    document.addEventListener('keydown', gameInputHandler);
+  }
+
+  // Start with title screen
+  showTitleScreen();
 }
 
 // Start the game
