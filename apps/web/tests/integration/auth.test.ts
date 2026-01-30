@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { signUp, signIn, signOut, getCurrentUser } from '../../src/services/authService';
 
-describe('Authentication Service', () => {
+// Skipped: Supabase backend deferred to post-MVP (see Sprint Change Proposal 2026-01-29)
+describe.skip('Authentication Service', () => {
   const testEmail = `test-${Date.now()}@example.com`;
   const testPassword = 'TestPassword123!';
 

@@ -8,7 +8,8 @@ import {
 } from '../../src/services/realtimeService';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
-describe('Real-time Subscriptions', () => {
+// Skipped: Supabase backend deferred to post-MVP (see Sprint Change Proposal 2026-01-29)
+describe.skip('Real-time Subscriptions', () => {
   let monstersChannel: RealtimeChannel;
   let shrinesChannel: RealtimeChannel;
   let deathEventsChannel: RealtimeChannel;

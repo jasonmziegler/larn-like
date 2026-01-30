@@ -1,17 +1,16 @@
 import { CanvasRenderer } from './rendering/CanvasRenderer';
 import { TitleScreen } from './ui/TitleScreen';
-import { GAME_CONSTANTS, MONSTER_DEFINITIONS } from '@larn-like/shared';
+import { CharacterNamingScreen } from './ui/CharacterNamingScreen';
+import { GameHUD } from './ui/GameHUD';
+import { GAME_CONSTANTS, MONSTER_DEFINITIONS, Hero } from '@larn-like/shared';
+import { createHero, getEffectiveAttack, getEffectiveDefense, applyDamage } from './game/Hero';
+import { generateDungeon, findEmptySpot, Position, DungeonGrid } from './game/DungeonGenerator';
 
 // =============================================================================
-// SIMPLE DUNGEON PROTOTYPE
+// DUNGEON PROTOTYPE WITH HERO SYSTEM
 // =============================================================================
 
 // Types
-interface Position {
-  x: number;
-  y: number;
-}
-
 interface Entity {
   pos: Position;
   char: string;
@@ -27,135 +26,92 @@ interface Monster extends Entity {
 }
 
 interface GameState {
-  hero: Entity & { health: number; maxHealth: number; gold: number; attack: number; defense: number };
+  hero: Hero;
+  heroPos: Position;
   monsters: Monster[];
-  items: (Entity & { type: 'gold' | 'teeth'; value: number })[];
-  dungeon: string[][];
+  items: (Entity & { type: 'teeth'; value: number })[];
+  dungeon: DungeonGrid;
+  dungeonWidth: number;
+  dungeonHeight: number;
+  cameraX: number;
+  cameraY: number;
   messages: string[];
   gameOver: boolean;
   victory: boolean;
 }
 
-// Constants
-const DUNGEON_WIDTH = 78;  // Leave room for border
-const DUNGEON_HEIGHT = 20; // Leave room for status bar
+// Constants - viewport dimensions (visible area)
+const VIEWPORT_COLS = 78;
+const VIEWPORT_ROWS = 20;
+// Actual dungeon dimensions (larger than viewport)
+const DUNGEON_WIDTH = 120;
+const DUNGEON_HEIGHT = 40;
 const COLORS = GAME_CONSTANTS.COLORS;
-
-// =============================================================================
-// DUNGEON GENERATION
-// =============================================================================
-
-function generateDungeon(): string[][] {
-  const dungeon: string[][] = [];
-
-  // Fill with walls
-  for (let y = 0; y < DUNGEON_HEIGHT; y++) {
-    dungeon[y] = [];
-    for (let x = 0; x < DUNGEON_WIDTH; x++) {
-      dungeon[y][x] = '#';
-    }
-  }
-
-  // Carve out rooms
-  const rooms: { x: number; y: number; w: number; h: number }[] = [];
-
-  // Create 4-6 rooms
-  const numRooms = 4 + Math.floor(Math.random() * 3);
-
-  for (let i = 0; i < numRooms; i++) {
-    const roomW = 6 + Math.floor(Math.random() * 8);
-    const roomH = 4 + Math.floor(Math.random() * 5);
-    const roomX = 1 + Math.floor(Math.random() * (DUNGEON_WIDTH - roomW - 2));
-    const roomY = 1 + Math.floor(Math.random() * (DUNGEON_HEIGHT - roomH - 2));
-
-    // Carve room
-    for (let y = roomY; y < roomY + roomH; y++) {
-      for (let x = roomX; x < roomX + roomW; x++) {
-        dungeon[y][x] = '.';
-      }
-    }
-
-    // Connect to previous room with corridor
-    if (rooms.length > 0) {
-      const prevRoom = rooms[rooms.length - 1];
-      const prevCenterX = Math.floor(prevRoom.x + prevRoom.w / 2);
-      const prevCenterY = Math.floor(prevRoom.y + prevRoom.h / 2);
-      const currCenterX = Math.floor(roomX + roomW / 2);
-      const currCenterY = Math.floor(roomY + roomH / 2);
-
-      // Horizontal then vertical corridor
-      const startX = Math.min(prevCenterX, currCenterX);
-      const endX = Math.max(prevCenterX, currCenterX);
-      for (let x = startX; x <= endX; x++) {
-        dungeon[prevCenterY][x] = '.';
-      }
-
-      const startY = Math.min(prevCenterY, currCenterY);
-      const endY = Math.max(prevCenterY, currCenterY);
-      for (let y = startY; y <= endY; y++) {
-        dungeon[y][currCenterX] = '.';
-      }
-    }
-
-    rooms.push({ x: roomX, y: roomY, w: roomW, h: roomH });
-  }
-
-  return dungeon;
-}
-
-function findEmptySpot(dungeon: string[][], occupied: Position[]): Position {
-  let attempts = 0;
-  while (attempts < 1000) {
-    const x = Math.floor(Math.random() * DUNGEON_WIDTH);
-    const y = Math.floor(Math.random() * DUNGEON_HEIGHT);
-
-    if (dungeon[y][x] === '.' && !occupied.some(p => p.x === x && p.y === y)) {
-      return { x, y };
-    }
-    attempts++;
-  }
-  return { x: 5, y: 5 }; // Fallback
-}
 
 // =============================================================================
 // GAME INITIALIZATION
 // =============================================================================
 
-function initGame(): GameState {
-  const dungeon = generateDungeon();
+// Monster color mapping for visual differentiation
+const MONSTER_COLORS: Record<string, string> = {
+  goblin: COLORS.TEXT_NORMAL,   // green
+  orc: COLORS.TEXT_BRIGHT,      // bright green
+  troll: '#FF6600',             // orange
+  dragon: '#FF0000',            // red
+};
+
+// Weighted monster distribution: more weak monsters, fewer strong ones
+interface MonsterWeight {
+  key: keyof typeof MONSTER_DEFINITIONS;
+  weight: number;
+}
+
+const MONSTER_WEIGHTS: MonsterWeight[] = [
+  { key: 'GOBLIN', weight: 50 },
+  { key: 'ORC', weight: 30 },
+  { key: 'TROLL', weight: 15 },
+  { key: 'DRAGON', weight: 5 },
+];
+
+function pickWeightedMonster(): keyof typeof MONSTER_DEFINITIONS {
+  const totalWeight = MONSTER_WEIGHTS.reduce((sum, mw) => sum + mw.weight, 0);
+  let roll = Math.random() * totalWeight;
+  for (const mw of MONSTER_WEIGHTS) {
+    roll -= mw.weight;
+    if (roll <= 0) return mw.key;
+  }
+  return 'GOBLIN';
+}
+
+function initGame(heroName: string = 'Hero'): GameState {
+  const { grid: dungeon } = generateDungeon({ width: DUNGEON_WIDTH, height: DUNGEON_HEIGHT });
   const occupied: Position[] = [];
 
   // Place hero in first room
-  const heroPos = findEmptySpot(dungeon, occupied);
+  const heroPos = findEmptySpot(dungeon, occupied, DUNGEON_WIDTH, DUNGEON_HEIGHT);
   occupied.push(heroPos);
 
-  const hero = {
-    pos: heroPos,
-    char: '@',
-    color: COLORS.TEXT_BRIGHT,
-    name: 'Hero',
-    health: 100,
-    maxHealth: 100,
-    gold: 0,
-    attack: 10,
-    defense: 5
-  };
+  const hero = createHero(heroName);
+  hero.position.x = heroPos.x;
+  hero.position.y = heroPos.y;
 
-  // Place monsters
+  // Place monsters - scale count to dungeon size
   const monsters: Monster[] = [];
-  const monsterCount = 3 + Math.floor(Math.random() * 3);
+  const areaRatio = (DUNGEON_WIDTH * DUNGEON_HEIGHT) / (78 * 20);
+  const baseCount = 3 + Math.floor(Math.random() * 3);
+  const monsterCount = Math.floor(baseCount * areaRatio);
 
   for (let i = 0; i < monsterCount; i++) {
-    const pos = findEmptySpot(dungeon, occupied);
+    const pos = findEmptySpot(dungeon, occupied, DUNGEON_WIDTH, DUNGEON_HEIGHT);
     occupied.push(pos);
 
-    // Mix of goblins and orcs
-    const def = i < monsterCount - 1 ? MONSTER_DEFINITIONS.GOBLIN : MONSTER_DEFINITIONS.ORC;
+    const monsterKey = pickWeightedMonster();
+    const def = MONSTER_DEFINITIONS[monsterKey];
 
     monsters.push({
       pos,
       char: def.asciiChar,
-      color: i < monsterCount - 1 ? COLORS.TEXT_NORMAL : COLORS.TEXT_BRIGHT,
+      color: MONSTER_COLORS[def.type] || COLORS.TEXT_NORMAL,
       name: def.name,
       health: def.baseHealth,
       maxHealth: def.baseHealth,
@@ -164,34 +120,47 @@ function initGame(): GameState {
     });
   }
 
-  // Place gold/teeth items
-  const items: (Entity & { type: 'gold' | 'teeth'; value: number })[] = [];
-  const itemCount = 4 + Math.floor(Math.random() * 4);
+  // Place teeth items - scale to dungeon size
+  const items: (Entity & { type: 'teeth'; value: number })[] = [];
+  const baseItemCount = 4 + Math.floor(Math.random() * 4);
+  const itemCount = Math.floor(baseItemCount * areaRatio);
 
   for (let i = 0; i < itemCount; i++) {
-    const pos = findEmptySpot(dungeon, occupied);
+    const pos = findEmptySpot(dungeon, occupied, DUNGEON_WIDTH, DUNGEON_HEIGHT);
     occupied.push(pos);
 
-    const isTeeth = Math.random() < 0.3;
     items.push({
       pos,
-      char: isTeeth ? '%' : '$',
-      color: isTeeth ? COLORS.TEXT_BRIGHT : COLORS.GOLD_COLOR,
-      name: isTeeth ? 'Teeth' : 'Gold',
-      type: isTeeth ? 'teeth' : 'gold',
-      value: isTeeth ? (1 + Math.floor(Math.random() * 10)) : (5 + Math.floor(Math.random() * 20))
+      char: '%',
+      color: COLORS.TEXT_BRIGHT,
+      name: 'Teeth',
+      type: 'teeth',
+      value: 1 + Math.floor(Math.random() * 10)
     });
   }
 
+  // Calculate initial camera position
+  const cameraX = clamp(heroPos.x - Math.floor(VIEWPORT_COLS / 2), 0, DUNGEON_WIDTH - VIEWPORT_COLS);
+  const cameraY = clamp(heroPos.y - Math.floor(VIEWPORT_ROWS / 2), 0, DUNGEON_HEIGHT - VIEWPORT_ROWS);
+
   return {
     hero,
+    heroPos,
     monsters,
     items,
     dungeon,
-    messages: ['Welcome to the dungeon! Use WASD or Arrow keys to move.', 'Bump into monsters to attack them!'],
+    dungeonWidth: DUNGEON_WIDTH,
+    dungeonHeight: DUNGEON_HEIGHT,
+    cameraX,
+    cameraY,
+    messages: ['Welcome to the dungeon! Use WASD/Arrows/Numpad to move.', 'Bump into monsters to attack them!'],
     gameOver: false,
     victory: false
   };
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
 }
 
 // =============================================================================
@@ -201,17 +170,24 @@ function initGame(): GameState {
 function tryMove(state: GameState, dx: number, dy: number): void {
   if (state.gameOver) return;
 
-  const newX = state.hero.pos.x + dx;
-  const newY = state.hero.pos.y + dy;
+  const newX = state.heroPos.x + dx;
+  const newY = state.heroPos.y + dy;
 
   // Bounds check
-  if (newX < 0 || newX >= DUNGEON_WIDTH || newY < 0 || newY >= DUNGEON_HEIGHT) {
+  if (newX < 0 || newX >= state.dungeonWidth || newY < 0 || newY >= state.dungeonHeight) {
     return;
   }
 
   // Wall collision
   if (state.dungeon[newY][newX] === '#') {
     return;
+  }
+
+  // Diagonal wall collision - prevent corner-cutting
+  if (dx !== 0 && dy !== 0) {
+    if (state.dungeon[state.heroPos.y][newX] === '#' && state.dungeon[newY][state.heroPos.x] === '#') {
+      return;
+    }
   }
 
   // Monster collision = combat!
@@ -222,14 +198,20 @@ function tryMove(state: GameState, dx: number, dy: number): void {
   }
 
   // Move hero
-  state.hero.pos.x = newX;
-  state.hero.pos.y = newY;
+  state.heroPos.x = newX;
+  state.heroPos.y = newY;
+  state.hero.position.x = newX;
+  state.hero.position.y = newY;
+
+  // Update camera to follow hero
+  state.cameraX = clamp(newX - Math.floor(VIEWPORT_COLS / 2), 0, state.dungeonWidth - VIEWPORT_COLS);
+  state.cameraY = clamp(newY - Math.floor(VIEWPORT_ROWS / 2), 0, state.dungeonHeight - VIEWPORT_ROWS);
 
   // Check for items
   const itemIndex = state.items.findIndex(i => i.pos.x === newX && i.pos.y === newY);
   if (itemIndex !== -1) {
     const item = state.items[itemIndex];
-    state.hero.gold += item.value;
+    state.hero.teethCurrency += item.value;
     state.messages.unshift(`Picked up ${item.value} ${item.name}!`);
     state.items.splice(itemIndex, 1);
   }
@@ -240,22 +222,20 @@ function tryMove(state: GameState, dx: number, dy: number): void {
 
 function combat(state: GameState, monster: Monster): void {
   // Hero attacks monster
-  const heroDamage = Math.max(1, state.hero.attack - monster.defense + Math.floor(Math.random() * 5));
+  const heroAtk = getEffectiveAttack(state.hero);
+  const heroDamage = Math.max(1, heroAtk - monster.defense + Math.floor(Math.random() * 5));
   monster.health -= heroDamage;
   state.messages.unshift(`You hit ${monster.name} for ${heroDamage} damage!`);
 
   if (monster.health <= 0) {
-    // Monster dies
     state.messages.unshift(`${monster.name} is slain!`);
     const index = state.monsters.indexOf(monster);
     state.monsters.splice(index, 1);
 
-    // Drop teeth on death
     const teethDrop = 1 + Math.floor(Math.random() * 5);
-    state.hero.gold += teethDrop;
+    state.hero.teethCurrency += teethDrop;
     state.messages.unshift(`${monster.name} dropped ${teethDrop} teeth!`);
 
-    // Check victory
     if (state.monsters.length === 0) {
       state.victory = true;
       state.gameOver = true;
@@ -265,12 +245,12 @@ function combat(state: GameState, monster: Monster): void {
   }
 
   // Monster retaliates
-  const monsterDamage = Math.max(1, monster.attack - state.hero.defense + Math.floor(Math.random() * 3));
-  state.hero.health -= monsterDamage;
+  const heroDef = getEffectiveDefense(state.hero);
+  const monsterDamage = Math.max(1, monster.attack - heroDef + Math.floor(Math.random() * 3));
+  applyDamage(state.hero, monsterDamage);
   state.messages.unshift(`${monster.name} hits you for ${monsterDamage} damage!`);
 
-  if (state.hero.health <= 0) {
-    state.hero.health = 0;
+  if (!state.hero.isAlive) {
     state.gameOver = true;
     state.messages.unshift('*** YOU DIED! Press R to restart. ***');
   }
@@ -278,14 +258,11 @@ function combat(state: GameState, monster: Monster): void {
 
 function moveMonsters(state: GameState): void {
   for (const monster of state.monsters) {
-    // Simple AI: move toward hero if within range
-    const dx = state.hero.pos.x - monster.pos.x;
-    const dy = state.hero.pos.y - monster.pos.y;
+    const dx = state.heroPos.x - monster.pos.x;
+    const dy = state.heroPos.y - monster.pos.y;
     const dist = Math.abs(dx) + Math.abs(dy);
 
-    if (dist > 10) continue; // Too far, monster doesn't notice
-
-    // 50% chance to move
+    if (dist > 10) continue;
     if (Math.random() < 0.5) continue;
 
     let moveX = 0;
@@ -300,10 +277,9 @@ function moveMonsters(state: GameState): void {
     const newX = monster.pos.x + moveX;
     const newY = monster.pos.y + moveY;
 
-    // Check if can move
     if (state.dungeon[newY]?.[newX] === '.' &&
         !state.monsters.some(m => m !== monster && m.pos.x === newX && m.pos.y === newY) &&
-        !(state.hero.pos.x === newX && state.hero.pos.y === newY)) {
+        !(state.heroPos.x === newX && state.heroPos.y === newY)) {
       monster.pos.x = newX;
       monster.pos.y = newY;
     }
@@ -314,46 +290,49 @@ function moveMonsters(state: GameState): void {
 // RENDERING
 // =============================================================================
 
-function render(renderer: CanvasRenderer, state: GameState): void {
+function isInViewport(x: number, y: number, state: GameState): boolean {
+  return x >= state.cameraX && x < state.cameraX + VIEWPORT_COLS &&
+         y >= state.cameraY && y < state.cameraY + VIEWPORT_ROWS;
+}
+
+function render(renderer: CanvasRenderer, hud: GameHUD, state: GameState): void {
   renderer.clear();
 
-  // Draw dungeon
-  for (let y = 0; y < DUNGEON_HEIGHT; y++) {
-    for (let x = 0; x < DUNGEON_WIDTH; x++) {
-      const tile = state.dungeon[y][x];
-      const color = tile === '#' ? COLORS.TEXT_DIM : COLORS.TEXT_DIM;
-      renderer.drawChar(tile, x + 1, y + 1, color);
+  // Draw dungeon - only visible tiles within viewport
+  for (let y = state.cameraY; y < state.cameraY + VIEWPORT_ROWS; y++) {
+    for (let x = state.cameraX; x < state.cameraX + VIEWPORT_COLS; x++) {
+      if (y >= 0 && y < state.dungeonHeight && x >= 0 && x < state.dungeonWidth) {
+        const tile = state.dungeon[y][x];
+        const color = tile === '#' ? COLORS.TEXT_DIM : COLORS.TEXT_DIM;
+        renderer.drawChar(tile, x - state.cameraX + 1, y - state.cameraY + 1, color);
+      }
     }
   }
 
-  // Draw items
+  // Draw items (viewport-relative)
   for (const item of state.items) {
-    renderer.drawChar(item.char, item.pos.x + 1, item.pos.y + 1, item.color);
+    if (isInViewport(item.pos.x, item.pos.y, state)) {
+      renderer.drawChar(item.char, item.pos.x - state.cameraX + 1, item.pos.y - state.cameraY + 1, item.color);
+    }
   }
 
-  // Draw monsters
+  // Draw monsters (viewport-relative)
   for (const monster of state.monsters) {
-    renderer.drawChar(monster.char, monster.pos.x + 1, monster.pos.y + 1, monster.color);
+    if (isInViewport(monster.pos.x, monster.pos.y, state)) {
+      renderer.drawChar(monster.char, monster.pos.x - state.cameraX + 1, monster.pos.y - state.cameraY + 1, monster.color);
+    }
   }
 
-  // Draw hero
-  renderer.drawChar(state.hero.char, state.hero.pos.x + 1, state.hero.pos.y + 1, state.hero.color);
+  // Draw hero (@) (viewport-relative)
+  renderer.drawChar('@', state.heroPos.x - state.cameraX + 1, state.heroPos.y - state.cameraY + 1, COLORS.TEXT_BRIGHT);
 
-  // Draw border
+  // Draw border (fixed)
   renderer.drawBox(0, 0, 80, 22);
 
-  // Draw status bar
-  const healthColor = state.hero.health < 30 ? COLORS.HEALTH_CRITICAL : COLORS.TEXT_NORMAL;
-  const healthBar = `HP: ${state.hero.health}/${state.hero.maxHealth}`;
-  const goldBar = `Gold: ${state.hero.gold}`;
-  const monstersLeft = `Monsters: ${state.monsters.length}`;
+  // Draw status bar via GameHUD (fixed)
+  hud.renderStatusBar(state.hero, state.monsters.length, 22);
 
-  renderer.drawText(healthBar, 2, 22, healthColor);
-  renderer.drawText(goldBar, 20, 22, COLORS.GOLD_COLOR);
-  renderer.drawText(monstersLeft, 35, 22, COLORS.TEXT_NORMAL);
-  renderer.drawText('[WASD/Arrows: Move] [R: Restart]', 50, 22, COLORS.TEXT_DIM);
-
-  // Draw message log (last 2 messages)
+  // Draw message log (last 2 messages, fixed)
   for (let i = 0; i < Math.min(2, state.messages.length); i++) {
     const msg = state.messages[i];
     const color = i === 0 ? COLORS.TEXT_BRIGHT : COLORS.TEXT_DIM;
@@ -370,20 +349,33 @@ function init(): void {
 
   const renderer = new CanvasRenderer('game-canvas');
   const titleScreen = new TitleScreen(renderer);
+  const namingScreen = new CharacterNamingScreen(renderer);
+  const hud = new GameHUD(renderer);
   let gameInputHandler: ((e: KeyboardEvent) => void) | null = null;
 
   function showTitleScreen(): void {
-    // Remove dungeon input handler if active
     if (gameInputHandler) {
       document.removeEventListener('keydown', gameInputHandler);
       gameInputHandler = null;
     }
-    titleScreen.show(startGame);
+    titleScreen.show(showNamingScreen);
   }
 
-  function startGame(): void {
-    const state = initGame();
-    render(renderer, state);
+  function showNamingScreen(): void {
+    namingScreen.show(
+      (name: string) => {
+        startGame(name);
+      },
+      () => {
+        titleScreen.addCredit();
+        showTitleScreen();
+      }
+    );
+  }
+
+  function startGame(heroName: string): void {
+    const state = initGame(heroName);
+    render(renderer, hud, state);
 
     gameInputHandler = (e: KeyboardEvent) => {
       let dx = 0;
@@ -413,7 +405,19 @@ function init(): void {
           }
           break;
         default:
-          return;
+          // Numpad movement (use e.key for numpad digits)
+          switch (e.key) {
+            case '8': dy = -1; break;              // up
+            case '2': dy = 1; break;               // down
+            case '4': dx = -1; break;              // left
+            case '6': dx = 1; break;               // right
+            case '7': dx = -1; dy = -1; break;     // up-left
+            case '9': dx = 1; dy = -1; break;      // up-right
+            case '1': dx = -1; dy = 1; break;      // down-left
+            case '3': dx = 1; dy = 1; break;       // down-right
+            default: return;
+          }
+          break;
       }
 
       e.preventDefault();
@@ -422,7 +426,7 @@ function init(): void {
         tryMove(state, dx, dy);
       }
 
-      render(renderer, state);
+      render(renderer, hud, state);
     };
 
     document.addEventListener('keydown', gameInputHandler);

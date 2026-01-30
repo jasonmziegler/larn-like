@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { supabase } from '../../src/services/supabase';
 
-describe('Storage Buckets', () => {
+// Skipped: Supabase backend deferred to post-MVP (see Sprint Change Proposal 2026-01-29)
+describe.skip('Storage Buckets', () => {
   describe('Storage Availability', () => {
     it('should have storage API available', () => {
       expect(supabase.storage).toBeDefined();

@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { supabase } from '../../src/services/supabase';
 
-describe('Supabase Setup Verification', () => {
+// Skipped: Supabase backend deferred to post-MVP (see Sprint Change Proposal 2026-01-29)
+describe.skip('Supabase Setup Verification', () => {
   it('should have valid Supabase configuration', () => {
     expect(supabase).toBeDefined();
     expect(supabase.auth).toBeDefined();

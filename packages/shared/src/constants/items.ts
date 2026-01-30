@@ -24,6 +24,16 @@ export const ITEM_DEFINITIONS = {
     weight: 3
   },
   // Armor
+  SHIRT: {
+    id: 'shirt',
+    type: ItemType.ARMOR,
+    name: 'Shirt',
+    description: 'A simple cloth shirt',
+    armorClass: 1,
+    defenseBonus: 1,
+    value: 5,
+    weight: 1
+  },
   LEATHER_ARMOR: {
     id: 'leather_armor',
     type: ItemType.ARMOR,
