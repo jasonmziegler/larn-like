@@ -1,4 +1,4 @@
-# Larn-Like Web3 Dungeon Crawler - Development Setup Guide
+# Larn-Like Dungeon Crawler - Development Setup Guide
 
 *Quick Start Guide for Developers*
 *Last Updated: 2025-09-29*

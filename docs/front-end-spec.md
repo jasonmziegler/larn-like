@@ -1,4 +1,4 @@
-# Larn-Like Web3 Dungeon Crawler UI/UX Specification
+# Larn-Like Dungeon Crawler UI/UX Specification
 
 *Generated using UI/UX Specification Template v2.0*
 *Last Updated: 2025-09-28*
@@ -7,7 +7,7 @@
 
 ## Introduction
 
-Based on the PRD, this document defines the user experience goals, information architecture, user flows, and visual design specifications for **Larn-Like Web3 Dungeon Crawler**'s user interface. It serves as the foundation for visual design and frontend development, ensuring a cohesive and user-centered experience.
+Based on the PRD, this document defines the user experience goals, information architecture, user flows, and visual design specifications for **Larn-Like Dungeon Crawler**'s user interface. It serves as the foundation for visual design and frontend development, ensuring a cohesive and user-centered experience.
 
 The core UX challenge is communicating the innovative persistent world mechanics where player deaths become permanent world-building events through community-driven environmental storytelling. Each new hero discovers a world shaped by strangers' deaths, creating archaeological discovery rather than personal revenge narratives.
 
@@ -170,7 +170,7 @@ graph TD
 
 ### Equipment Management & Town Commerce
 
-**User Goal:** Convert collected teeth into useful equipment and manage 9-slot inventory system
+**User Goal:** Convert collected teeth into useful equipment and manage 10-slot inventory system
 
 **Entry Points:** Return to town with accumulated teeth, inventory management during dungeon exploration
 
@@ -194,7 +194,7 @@ graph TD
     K --> L[> Stairs Down to Level 1]
 
     G --> G1[Character Card Flip Shows Equipped vs Inventory]
-    H --> H1[9-Slot Constraint Management]
+    H --> H1[10-Slot Constraint Management]
     I --> I1[Paginated Chest Access < >]
 ```
 

@@ -1,6 +1,6 @@
 # Source Tree
 
-This document describes the complete directory structure and file organization for the Larn-Like Web3 Dungeon Crawler project.
+This document describes the complete directory structure and file organization for the Larn-Like Dungeon Crawler project.
 
 ## Root Structure
 

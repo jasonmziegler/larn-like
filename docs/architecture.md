@@ -1,4 +1,4 @@
-# Larn-Like Web3 Dungeon Crawler Fullstack Architecture Document
+# Larn-Like Dungeon Crawler Fullstack Architecture Document
 
 *Generated using Fullstack Architecture Template v2.0*
 *Last Updated: 2025-09-28*
@@ -7,7 +7,7 @@
 
 ## Introduction
 
-This document outlines the complete fullstack architecture for **Larn-Like Web3 Dungeon Crawler**, including backend systems, frontend implementation, and their integration. It serves as the single source of truth for AI-driven development, ensuring consistency across the entire technology stack.
+This document outlines the complete fullstack architecture for **Larn-Like Dungeon Crawler**, including backend systems, frontend implementation, and their integration. It serves as the single source of truth for AI-driven development, ensuring consistency across the entire technology stack.
 
 The unified approach combines what would traditionally be separate backend and frontend architecture documents, streamlining the development process for this modern fullstack application where client-side game mechanics and server-side world persistence are deeply intertwined.
 
@@ -443,7 +443,7 @@ supabase/.env
 - level: number - Current hero level (resets on death)
 - baseStats: HeroStats - Starting stats (consistent across all heroes)
 - currentStats: HeroStats - Modified stats from reagents and leveling
-- equipment: EquipmentSlots - Currently equipped items (9-slot system)
+- equipment: EquipmentSlots - Currently equipped items (10-slot system)
 - inventory: InventoryItem[] - Carried items (limited to 9 items)
 - currentLocation: LocationData - Current position in world
 - teethCurrency: number - Collected teeth for merchant purchases
@@ -709,7 +709,7 @@ The API design follows the hybrid REST + WebSockets approach from our tech stack
 ```yaml
 openapi: 3.0.0
 info:
-  title: Larn-Like Web3 Dungeon Crawler API
+  title: Larn-Like Dungeon Crawler API
   version: 1.0.0
   description: RESTful API for game actions and world state management
 servers:
@@ -1015,7 +1015,7 @@ interface ShrineCreatedEvent {
 **Responsibility:** Complex equipment constraints, blessing mechanics, and inventory validation across heroes and monsters
 
 **Key Interfaces:**
-- 9-slot equipment validation
+- 10-slot equipment validation
 - Blessing probability and enhancement
 - Inventory overflow management
 - Equipment naming and ownership tracking
@@ -1290,7 +1290,7 @@ CREATE TABLE equipment_items (
     INDEX idx_equipment_owner (original_owner)
 );
 
--- Hero equipment slots (9-slot system)
+-- Hero equipment slots (10-slot system)
 CREATE TABLE hero_equipment (
     hero_id UUID NOT NULL REFERENCES heroes(id) ON DELETE CASCADE,
     slot VARCHAR(20) NOT NULL,
@@ -1452,7 +1452,7 @@ src/
 ├── game/                     # Game logic modules
 │   ├── Hero.ts               # Hero state and actions
 │   ├── Monster.ts            # Monster behavior and evolution
-│   ├── Equipment.ts          # 9-slot equipment system
+│   ├── Equipment.ts          # 10-slot equipment system
 │   ├── Inventory.ts          # Inventory management
 │   ├── Combat.ts             # Turn-based combat logic
 │   └── Movement.ts           # Movement and collision

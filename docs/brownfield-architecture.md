@@ -199,7 +199,7 @@ This can all be done in `main.ts` without any backend, database, or complex arch
    - Game state management
    - Turn-based or real-time update loop
 
-4. **Hero types mismatch PRD** - Current `hero.types.ts` has 5 equipment slots, PRD specifies 9-slot system. Will need update.
+4. **Hero types mismatch PRD** - Current `hero.types.ts` has 5 equipment slots, PRD specifies 10-slot system. Will need update.
 
 5. **No tests for game logic** - Only integration tests for Supabase services exist.
 

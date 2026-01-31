@@ -1,8 +1,8 @@
-# Larn-Like Web3 Dungeon Crawler UI/UX Specification
+# Larn-Like Dungeon Crawler UI/UX Specification
 
 ## Table of Contents
 
-- [Larn-Like Web3 Dungeon Crawler UI/UX Specification](#table-of-contents)
+- [Larn-Like Dungeon Crawler UI/UX Specification](#table-of-contents)
   - [Introduction](./introduction.md)
     - [Overall UX Goals & Principles](./introduction.md#overall-ux-goals-principles)
       - [Target User Personas](./introduction.md#target-user-personas)

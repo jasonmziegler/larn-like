@@ -39,7 +39,7 @@ graph TD
 
 ## Equipment Management & Town Commerce
 
-**User Goal:** Convert collected teeth into useful equipment and manage 9-slot inventory system
+**User Goal:** Convert collected teeth into useful equipment and manage 10-slot inventory system
 
 **Entry Points:** Return to town with accumulated teeth, inventory management during dungeon exploration
 
@@ -63,7 +63,7 @@ graph TD
     K --> L[> Stairs Down to Level 1]
 
     G --> G1[Character Card Flip Shows Equipped vs Inventory]
-    H --> H1[9-Slot Constraint Management]
+    H --> H1[10-Slot Constraint Management]
     I --> I1[Paginated Chest Access < >]
 ```
 

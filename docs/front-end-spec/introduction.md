@@ -1,6 +1,6 @@
 # Introduction
 
-Based on the PRD, this document defines the user experience goals, information architecture, user flows, and visual design specifications for **Larn-Like Web3 Dungeon Crawler**'s user interface. It serves as the foundation for visual design and frontend development, ensuring a cohesive and user-centered experience.
+Based on the PRD, this document defines the user experience goals, information architecture, user flows, and visual design specifications for **Larn-Like Dungeon Crawler**'s user interface. It serves as the foundation for visual design and frontend development, ensuring a cohesive and user-centered experience.
 
 The core UX challenge is communicating the innovative persistent world mechanics where player deaths become permanent world-building events through community-driven environmental storytelling. Each new hero discovers a world shaped by strangers' deaths, creating archaeological discovery rather than personal revenge narratives.
 
