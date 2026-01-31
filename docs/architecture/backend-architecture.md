@@ -1,5 +1,7 @@
 # Backend Architecture
 
+> **PHASE NOTE:** This document describes the full target architecture including cloud services. For Epics 1-4, all persistence is browser-local (localStorage/IndexedDB). Cloud components (Supabase, Vercel Functions, WebSockets, REST API) are deferred to Epic 5. Sections marked **(Epic 5)** do not apply to Epics 1-4.
+
 ## Service Architecture
 
 ### Serverless Architecture

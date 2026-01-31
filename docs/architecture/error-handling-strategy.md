@@ -1,5 +1,7 @@
 # Error Handling Strategy
 
+> **PHASE NOTE:** This document describes the full target architecture including cloud services. For Epics 1-4, all persistence is browser-local (localStorage/IndexedDB). Cloud components (Supabase, Vercel Functions, WebSockets, REST API) are deferred to Epic 5. Sections marked **(Epic 5)** do not apply to Epics 1-4. For Epics 1-4, errors are localStorage/game-state errors (e.g., QuotaExceededError, corrupted save data, invalid game state), not API errors.
+
 ## Error Flow
 
 ```mermaid
@@ -71,7 +73,7 @@ class ErrorHandler {
 }
 ```
 
-## Backend Error Handling
+## Backend Error Handling **(Epic 5)**
 
 ```typescript
 export function errorHandler(error: Error, context: string): NextResponse {

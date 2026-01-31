@@ -10,7 +10,7 @@ Establish project infrastructure, basic ASCII roguelike gameplay, and hero creat
 Implement monster evolution on player death, teeth currency economy, and local world state persistence, transforming deaths into permanent local world changes across runs.
 
 **Epic 3: Equipment & Town Systems**
-Add the 9-slot equipment system, town merchant for teeth-based purchases, and dungeon chest distribution for monster inventory overflow, creating the full economic loop.
+Add the 10-slot equipment system, town merchant for teeth-based purchases, and dungeon chest distribution for monster inventory overflow, creating the full economic loop.
 
 **Epic 4: Core Dungeon Generation & Basic Evolution**
 Implement procedural dungeon generation with essential monster population management and basic evolution mechanics, providing the foundation for infinite scaling in post-MVP iterations.

@@ -1,6 +1,29 @@
 # Core Workflows
 
+> **PHASE NOTE:** This document describes the full target architecture including cloud services. For Epics 1-4, all persistence is browser-local (localStorage/IndexedDB). Cloud components (Supabase, Vercel Functions, WebSockets, REST API) are deferred to Epic 5. Sections marked **(Epic 5)** do not apply to Epics 1-4.
+
 ## Hero Death and World Evolution Workflow
+
+### Epics 1-4 (Local)
+
+```mermaid
+sequenceDiagram
+    participant Player as Player (Browser)
+    participant GE as Game Engine
+    participant LS as localStorage
+
+    Player->>GE: Attack monster (final blow to hero)
+    GE->>GE: Calculate damage, hero HP = 0
+    GE->>GE: Process death event locally
+    GE->>GE: Promote killer monster (+1 level, +stats)
+    GE->>GE: Transfer hero equipment to monster
+    GE->>GE: Create soul shrine at death location
+    GE->>GE: Generate teeth drop (1-32)
+    GE->>LS: Save updated world state
+    GE->>Player: Display death screen with consequences
+```
+
+### Epic 5+ (Cloud)
 
 ```mermaid
 sequenceDiagram
@@ -40,6 +63,30 @@ sequenceDiagram
 
 ## Soul Shrine Blessing Interaction Workflow
 
+### Epics 1-4 (Local)
+
+```mermaid
+sequenceDiagram
+    participant Player as Player (Browser)
+    participant GE as Game Engine
+    participant LS as localStorage
+
+    Player->>GE: Approach soul shrine
+    GE->>GE: Display shrine info (Hero_Name's Shrine)
+    Player->>GE: Interact with shrine
+    GE->>GE: Calculate blessing probability
+    alt Blessing successful
+        GE->>GE: Enhance selected equipment stats
+    else Blessing failed
+        GE->>GE: Degrade or destroy equipment
+    end
+    GE->>GE: Mark shrine as consumed
+    GE->>LS: Save updated world state
+    GE->>Player: Display blessing result
+```
+
+### Epic 5+ (Cloud)
+
 ```mermaid
 sequenceDiagram
     participant Player as Player (Browser)
@@ -72,6 +119,33 @@ sequenceDiagram
 ```
 
 ## New Hero World Discovery Workflow
+
+### Epics 1-4 (Local)
+
+```mermaid
+sequenceDiagram
+    participant Player as Player (Browser)
+    participant GE as Game Engine
+    participant LS as localStorage
+
+    Player->>GE: Insert Coin, Create Hero
+    GE->>GE: Create hero with base stats
+    GE->>LS: Save new hero state
+
+    Player->>GE: Enter dungeon (level 1)
+    GE->>LS: Load level 1 world state
+    LS->>GE: Return level with evolved monsters, shrines, teeth
+    GE->>Player: Render dungeon with persistent world elements
+
+    Player->>GE: Inspect evolved monster
+    Note over Player: Monster details show:<br/>- "Skeleton - Slayer of 2 Heroes"<br/>- Trophy equipment list<br/>- Enhanced stats from evolution
+
+    Player->>GE: Collect teeth from death site
+    GE->>GE: Update hero teeth currency
+    GE->>LS: Save hero state
+```
+
+### Epic 5+ (Cloud)
 
 ```mermaid
 sequenceDiagram

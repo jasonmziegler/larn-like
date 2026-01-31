@@ -1,6 +1,6 @@
 # Introduction
 
-This document outlines the complete fullstack architecture for **Larn-Like Web3 Dungeon Crawler**, including backend systems, frontend implementation, and their integration. It serves as the single source of truth for AI-driven development, ensuring consistency across the entire technology stack.
+This document outlines the complete fullstack architecture for **Larn-Like Dungeon Crawler**, including backend systems, frontend implementation, and their integration. It serves as the single source of truth for AI-driven development, ensuring consistency across the entire technology stack.
 
 The unified approach combines what would traditionally be separate backend and frontend architecture documents, streamlining the development process for this modern fullstack application where client-side game mechanics and server-side world persistence are deeply intertwined.
 

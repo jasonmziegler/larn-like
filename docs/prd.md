@@ -1,4 +1,4 @@
-# Larn-Like Web3 Dungeon Crawler Product Requirements Document (PRD)
+# Larn-Like Dungeon Crawler Product Requirements Document (PRD)
 
 *Generated using PRD Template v2.0*
 *Last Updated: 2025-09-24*
@@ -56,11 +56,15 @@ The death economy generates two permanent world changes: evolved boss monsters c
 
 **FR10:** World persistence system maintains all monster evolutions, teeth locations, and dungeon modifications across hero deaths and player sessions.
 
+**FR11:** Soul shrine creation system generates a shrine at the death location of each hero, containing a fragment of the hero's soul energy that persists in the world for future heroes to discover.
+
+**FR12:** Soul shrine blessing system allows living heroes to interact with shrines to attempt equipment enhancement, consuming the shrine's soul energy with a chance-based outcome (success enhances item, failure may damage it).
+
 ### Non-Functional Requirements
 
 **NFR1:** Game performance must maintain 60fps during combat and exploration with sub-200ms input response times in browser environment.
 
-**NFR2:** World state persistence must survive browser refresh, device changes, and extended offline periods without data loss.
+**NFR2:** World state persistence must survive browser refresh and session restarts on the same device without data loss. Cross-device persistence is deferred to Epic 5.
 
 **NFR3:** Procedural level generation must complete within 2 seconds for levels up to depth 100, scaling appropriately for deeper levels.
 
@@ -94,9 +98,9 @@ Classic ASCII roguelike aesthetic with modern quality-of-life improvements. The 
 - **Death/Legacy Screen** - Shows how current hero's death affects the world (monster promotions, teeth drops)
 - **Teeth Collection Interface** - Visual feedback when discovering previous heroes' death sites
 
-### Accessibility: WCAG AA
+### Accessibility *(Deferred — Post-MVP)*
 
-Implement keyboard navigation, high contrast ASCII characters, and screen reader support for core gameplay functions while maintaining the authentic retro aesthetic.
+WCAG AA compliance is deferred to post-MVP. The Canvas 2D rendering approach used for ASCII display does not expose a DOM-accessible text layer, making screen reader support impractical without a dedicated accessibility overlay. Keyboard navigation is inherently supported through roguelike controls. High-contrast ASCII characters are part of the retro aesthetic. A dedicated accessibility pass (including an optional HTML overlay for screen readers) will be planned after core gameplay is stable.
 
 ### Branding
 
@@ -116,7 +120,7 @@ Single repository containing frontend game client and backend world persistence 
 
 ### Service Architecture
 
-**Local-first hybrid architecture** combining client-side game execution with server-side world state persistence. Game mechanics (combat, movement, inventory) run locally in browser for optimal performance, while monster evolution, teeth placement, and dungeon generation sync to backend services. This ensures offline playability while maintaining persistent world state across devices and sessions.
+**Browser-local architecture** with all game mechanics and world state persistence running client-side using localStorage/IndexedDB. Cloud sync and server-side persistence are deferred to Epic 5 (Cloud Persistence & Multiplayer).
 
 ### Testing Requirements
 
@@ -125,8 +129,8 @@ Single repository containing frontend game client and backend world persistence 
 ### Additional Technical Assumptions and Requests
 
 - **Frontend Stack:** Vanilla TypeScript with Canvas 2D API for ASCII rendering, optimized for 60fps performance and minimal bundle size
-- **Backend Services:** Vercel serverless functions with Supabase PostgreSQL for world state persistence and real-time synchronization
-- **Equipment System:** Fixed 9 equipment slots per entity (weapon/off-hand OR two-handed, helmet, body armor, gloves, boots, 2x rings, amulet, belt) with overflow items distributed to dungeon chests when monster inventory is full
+- **Local Persistence:** Browser localStorage/IndexedDB for world state persistence. Cloud backend (Vercel/Supabase) deferred to Epic 5
+- **Equipment System:** Fixed 10 equipment slots per entity (weapon/off-hand OR two-handed, helmet, body armor, gloves, boots, 2x rings, amulet, belt) with overflow items distributed to dungeon chests when monster inventory is full
 - **Monster Display Architecture:** Single ASCII character monsters with paginated detail panels showing evolution history, equipment, and kill statistics
 - **Dungeon Population System:** Density-based monster limits per level with evolved monster queue system that repopulates levels during room regeneration cycles
 - **Data Storage Schema:** Efficient monster evolution tracking with equipment slot constraints, dungeon chest inventory management, and monster queue persistence across sessions
@@ -137,24 +141,29 @@ Single repository containing frontend game client and backend world persistence 
 
 ## Epic List
 
-**Epic 0: Infrastructure & Development Setup**
-Establish complete development environment, external service integration, and deployment infrastructure before any game development begins, ensuring all developers have consistent, working environments with proper database and authentication setup.
+**Epic 0: Infrastructure & Development Setup** *(DEFERRED to Epic 5)*
+Supabase infrastructure setup has been absorbed into Epic 5 (Cloud Persistence & Multiplayer). Epic 1 handles local development environment setup.
 
 **Epic 1: Foundation & Core Game Loop**
 Establish project infrastructure, basic ASCII roguelike gameplay, and hero creation system with nostalgic "Insert Coin" interface, delivering a playable single-session dungeon crawler.
 
 **Epic 2: World Persistence & Death Economy**
-Implement the core innovation - monster evolution on player death, teeth currency drops, and world state persistence, transforming deaths into permanent world changes.
+Implement the core innovation - monster evolution on player death, teeth currency drops, and browser-local world state persistence, transforming deaths into permanent world changes. All persistence uses localStorage/IndexedDB.
 
 **Epic 3: Equipment & Town Systems**
-Add the 9-slot equipment system, town merchant for teeth-based purchases, and dungeon chest distribution for monster inventory overflow, creating the full economic loop.
+Add the 10-slot equipment system, town merchant for teeth-based purchases, and dungeon chest distribution for monster inventory overflow, creating the full economic loop.
 
 **Epic 4: Core Dungeon Generation & Basic Evolution**
 Implement procedural dungeon generation with essential monster population management and basic evolution mechanics, providing the foundation for infinite scaling in post-MVP iterations.
 
+**Epic 5: Cloud Persistence & Multiplayer**
+Migrate from browser-local persistence to Supabase cloud backend, enabling cross-device play, multiplayer shared world with community death histories, cloud backup, and real-time synchronization.
+
 ---
 
-## Epic 0: Infrastructure & Development Setup
+## Epic 0: Infrastructure & Development Setup *(DEFERRED to Epic 5)*
+
+> **STATUS: DEFERRED** — This epic's Supabase infrastructure work has been deferred to Epic 5 (Cloud Persistence & Multiplayer). Epic 2 now uses browser-local persistence (localStorage/IndexedDB). Stories 0.1-0.4 will be revisited and adapted in Epic 5.
 
 **Epic Goal:** Establish complete development environment, external service integration, and deployment infrastructure before any game development begins. This epic ensures all developers have consistent, working environments with proper database and authentication setup, eliminating infrastructure blockers during core development.
 
@@ -298,20 +307,20 @@ so that I can experience character progression during my current dungeon run.
 
 ## Epic 2: World Persistence & Death Economy
 
-**Epic Goal:** Implement the core innovation that transforms traditional roguelike death mechanics into permanent world consequences. When heroes die, killer monsters are promoted to deeper levels with enhanced stats and trophy equipment, while death sites drop teeth currency for future heroes to collect. This epic transforms deaths from meaningless resets into generative world-building events that create lasting challenges and resources.
+**Epic Goal:** Implement the core innovation that transforms traditional roguelike death mechanics into permanent world consequences using browser-local persistence. When heroes die, killer monsters are promoted to deeper levels with enhanced stats and trophy equipment, while death sites drop teeth currency for future heroes to collect. This epic transforms deaths from meaningless resets into generative world-building events that create lasting challenges and resources. All persistence is local to the browser via localStorage/IndexedDB, with cloud sync deferred to Epic 5.
 
-### Story 2.1: World State Persistence Infrastructure
+### Story 2.1: Local World State Persistence Infrastructure
 As a developer,
-I want a persistent world state system that survives hero deaths and browser sessions,
-so that monster evolutions, teeth locations, and world changes remain permanent across all gameplay sessions.
+I want a persistent world state system using browser-local storage that survives hero deaths and browser sessions,
+so that monster evolutions, teeth locations, and world changes remain permanent across gameplay sessions on the same device.
 
 #### Acceptance Criteria
-1. Backend service (Vercel/Supabase) stores world state including monster locations, stats, and equipment
-2. World state persists across browser refresh, device changes, and extended offline periods
-3. Local-first architecture caches world state for offline play with sync on reconnection
-4. Database schema supports monster evolution tracking, teeth location storage, and equipment histories
-5. World state loads within 2 seconds on game startup with appropriate loading indicators
-6. Conflict resolution handles concurrent world state changes gracefully
+1. World state stored in localStorage or IndexedDB including monster locations, stats, and equipment
+2. World state persists across browser refresh and tab close/reopen on the same device
+3. World state data model supports monster evolution tracking, teeth location storage, and equipment histories
+4. World state loads within 500ms on game startup with appropriate loading indicators
+5. Storage schema is versioned to support future migration to cloud persistence (Epic 5)
+6. Graceful handling of storage quota limits with user notification if world state exceeds browser storage capacity
 
 ### Story 2.2: Monster Promotion on Player Death
 As a player whose hero has died,
@@ -323,7 +332,7 @@ so that my death creates a permanent, more challenging encounter for future hero
 2. Promoted monster gains enhanced stats (+1 HP minimum, possibly other stat bonuses)
 3. Monster moves to the next deeper dungeon level (level 1 → level 2, level 2 → level 3, etc.)
 4. Promoted monster retains original type but gains "evolved" status in world state
-5. Death event triggers world state update that persists the monster promotion
+5. Death event triggers local world state update that persists the monster promotion to browser storage
 6. Clear visual feedback shows player which monster killed them and will be promoted
 
 ### Story 2.3: Trophy Equipment Transfer System
@@ -333,7 +342,7 @@ so that promoted monsters become more dangerous and carry visible reminders of p
 
 #### Acceptance Criteria
 1. When hero dies, all equipped items (dagger, armor, etc.) transfer to the killing monster
-2. Monster equipment slots accommodate transferred items within the 9-slot constraint system
+2. Monster equipment slots accommodate transferred items within the 10-slot constraint system
 3. Promoted monsters display equipped trophy items in their detail panel descriptions
 4. Trophy equipment provides appropriate stat bonuses to the promoted monster
 5. Equipment overflow (when monster slots are full) gets distributed to nearby dungeon chests
@@ -367,32 +376,58 @@ so that I understand the story behind each monster and can strategically prepare
 
 ### Story 2.6: New Hero Integration with Persistent World
 As a player creating a new hero after death,
-I want to enter a world shaped by my previous hero's death and other players' histories,
+I want to enter a world shaped by my previous heroes' deaths,
 so that each new attempt feels meaningfully different due to accumulated world changes.
 
 #### Acceptance Criteria
 1. New heroes spawn with fresh base stats but enter the persistent world state
-2. Dungeon levels reflect all previous monster promotions, teeth drops, and equipment distributions
+2. Dungeon levels reflect all previous monster promotions, teeth drops, and equipment distributions from this browser's history
 3. Heroes can immediately encounter evolved monsters and collect teeth from previous deaths
-4. World state loading displays appropriate feedback about discovered changes since last play
+4. Local world state loads and reflects accumulated changes from previous sessions
 5. New hero creation process accounts for available credits and maintains "Insert Coin" flow
 6. Clear visual/text indicators help players understand which elements are persistent vs. reset
+
+### Story 2.7: Soul Shrine Creation on Hero Death
+As a player whose hero has died,
+I want a soul shrine to appear at the death location,
+so that my hero's sacrifice leaves a permanent, interactive monument in the world.
+
+#### Acceptance Criteria
+1. When a hero dies, a soul shrine is created at the exact death coordinates alongside teeth currency
+2. Shrine displays as a distinct ASCII symbol (e.g., `†`) on the dungeon map
+3. Shrine stores metadata: deceased hero name, level at death, and soul energy value
+4. Soul energy value scales with hero level and stats at time of death
+5. Shrine persists in browser-local world state until consumed by a future hero's blessing attempt
+6. Multiple shrines can exist on the same dungeon level from different hero deaths
+
+### Story 2.8: Soul Shrine Blessing Interaction
+As a player exploring the dungeon,
+I want to interact with soul shrines to attempt to bless my equipment,
+so that I can gain powerful enhancements by leveraging the legacy of fallen heroes.
+
+#### Acceptance Criteria
+1. Player can interact with a shrine when adjacent by pressing a designated key
+2. Interaction presents a choice of which equipped item to attempt to bless
+3. Blessing outcome is chance-based: success enhances the item's stats, failure may degrade or destroy it
+4. Success chance influenced by shrine soul energy value and item rarity/tier
+5. Used shrine is consumed (removed from world state) regardless of blessing outcome
+6. Clear visual and text feedback communicates blessing result to the player
 
 ---
 
 ## Epic 3: Equipment & Town Systems
 
-**Epic Goal:** Implement the complete 9-slot equipment system, town merchant interface for teeth-based purchases, and dungeon chest distribution for monster inventory overflow. This epic creates the full economic loop where collected teeth currency enables equipment upgrades, while the structured equipment system ensures manageable complexity for both players and monsters carrying trophy gear from defeated heroes.
+**Epic Goal:** Implement the complete 10-slot equipment system, town merchant interface for teeth-based purchases, and dungeon chest distribution for monster inventory overflow. This epic creates the full economic loop where collected teeth currency enables equipment upgrades, while the structured equipment system ensures manageable complexity for both players and monsters carrying trophy gear from defeated heroes.
 
 ### Story 3.1: Comprehensive Equipment Slot System
 As a player,
-I want a structured equipment system with 9 defined slots,
+I want a structured equipment system with 10 defined slots,
 so that I can strategically equip gear while understanding exactly what items can be worn simultaneously.
 
 #### Acceptance Criteria
 1. Equipment slots implemented: 1 weapon OR 1 off-hand + 1 weapon OR 1 two-handed weapon, helmet, body armor, gloves, boots, 2x rings, 1 amulet, belt
 2. Equipment slot constraints prevent invalid combinations (two-handed weapon blocks off-hand slot)
-3. Visual equipment panel clearly shows all 9 slots with equipped/empty status
+3. Visual equipment panel clearly shows all 10 slots with equipped/empty status
 4. Drag-and-drop or hotkey equipment management for efficient gear swapping
 5. Equipped items provide appropriate stat bonuses that update character stats immediately
 6. Equipment removal returns items to inventory with proper slot availability checking
@@ -425,11 +460,11 @@ so that I can discover additional gear beyond basic merchant purchases and monst
 
 ### Story 3.4: Monster Equipment Slot Management
 As a system,
-I want monsters to follow the same 9-slot equipment constraints as players,
+I want monsters to follow the same 10-slot equipment constraints as players,
 so that promoted monsters carrying trophy gear remain manageable and don't become overly complex.
 
 #### Acceptance Criteria
-1. Monsters use identical 9-slot equipment system as players with same constraints
+1. Monsters use identical 10-slot equipment system as players with same constraints
 2. When monster equipment slots are full, overflow items automatically distribute to nearby dungeon chests
 3. Monster equipment display in detail panels shows organized slot-based layout
 4. Trophy equipment from defeated heroes properly fills monster slots according to item types
@@ -505,7 +540,7 @@ so that death consequences are immediate and visible without complex queue manag
 3. Evolved monsters persist on their assigned levels until killed by players
 4. Simple promotion logic: +1 level depth, +50% HP, equipment transferred
 5. Maximum 3 evolved monsters per level to maintain balance and performance
-6. Database stores evolved monster data efficiently with kill history and equipment
+6. Local storage persists evolved monster data efficiently with kill history and equipment
 
 ### Story 4.4: MVP Scaling Foundation
 As a developer,
@@ -513,12 +548,12 @@ I want the technical foundation to support post-MVP scaling to deeper levels,
 so that infinite dungeon features can be added later without major architecture changes.
 
 #### Acceptance Criteria
-1. Database schema supports levels beyond 15 without structural changes
+1. Local storage schema supports levels beyond 15 without structural changes
 2. Level generation algorithm can extend to deeper levels with parameter changes
 3. Monster evolution system supports multiple promotions through simple iteration
 4. Performance monitoring in place for identifying scaling bottlenecks
 5. Caching strategy handles 15 levels efficiently with extension points for more
-6. API endpoints designed to support expanded depth ranges in future versions
+6. Storage interface designed to support expanded depth ranges and future cloud migration (Epic 5)
 
 ---
 
@@ -536,6 +571,9 @@ so that infinite dungeon features can be added later without major architecture 
 - **Advanced Equipment Systems** - Complex blessing mechanics, equipment degradation, and legendary item creation
 - **Dynamic Difficulty Scaling** - AI-driven monster placement based on player skill and death patterns
 - **Cross-Session Events** - Timed events, seasonal content, and community-wide challenges
+
+### Web3 Integration
+- **Blockchain Integration** - Optional Web3 features such as on-chain hero NFTs, token-based teeth currency, and decentralized world state persistence
 
 ### Performance & Scaling Optimizations
 - **Deep Level Caching** - Sophisticated caching strategies for hundreds of simultaneously accessed levels

@@ -1,8 +1,8 @@
-# Larn-Like Web3 Dungeon Crawler Fullstack Architecture Document
+# Larn-Like Dungeon Crawler Fullstack Architecture Document
 
 ## Table of Contents
 
-- [Larn-Like Web3 Dungeon Crawler Fullstack Architecture Document](#table-of-contents)
+- [Larn-Like Dungeon Crawler Fullstack Architecture Document](#table-of-contents)
   - [Introduction](./introduction.md)
     - [Starter Template or Existing Project](./introduction.md#starter-template-or-existing-project)
     - [Change Log](./introduction.md#change-log)

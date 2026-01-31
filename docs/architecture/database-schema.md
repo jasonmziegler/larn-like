@@ -1,5 +1,7 @@
 # Database Schema
 
+> **PHASE NOTE:** This PostgreSQL schema is deferred to Epic 5 (Cloud Persistence & Multiplayer). For Epics 1-4, all persistence uses browser-local localStorage/IndexedDB. See the [Local Persistence Architecture](./data-models.md#local-persistence-architecture-epics-1-4) section in data-models.md for the Epics 1-4 storage design.
+
 ```sql
 -- Enable UUID extension for globally unique identifiers
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -74,7 +76,7 @@ CREATE TABLE equipment_items (
     INDEX idx_equipment_owner (original_owner)
 );
 
--- Hero equipment slots (9-slot system)
+-- Hero equipment slots (10-slot system)
 CREATE TABLE hero_equipment (
     hero_id UUID NOT NULL REFERENCES heroes(id) ON DELETE CASCADE,
     slot VARCHAR(20) NOT NULL,

@@ -1,5 +1,7 @@
 # Deployment Architecture
 
+> **PHASE NOTE:** This document describes the full target architecture including cloud services. For Epics 1-4, all persistence is browser-local (localStorage/IndexedDB). Cloud components (Supabase, Vercel Functions, WebSockets, REST API) are deferred to Epic 5. Sections marked **(Epic 5)** do not apply to Epics 1-4.
+
 ## Deployment Strategy
 
 **Frontend Deployment:**
@@ -8,7 +10,7 @@
 - **Output Directory:** `apps/web/dist`
 - **CDN/Edge:** Global edge deployment with automatic optimization
 
-**Backend Deployment:**
+**Backend Deployment** **(Epic 5):**
 - **Platform:** Vercel Serverless Functions
 - **Build Command:** `npm run build:api`
 - **Deployment Method:** Automatic deployment via Vercel CLI
@@ -65,10 +67,10 @@ jobs:
 
 ## Environments
 
-| Environment | Frontend URL | Backend URL | Purpose |
+| Environment | Frontend URL | Backend URL **(Epic 5)** | Purpose |
 |-------------|-------------|-------------|---------|
-| Development | http://localhost:5173 | http://localhost:3000/api | Local development |
-| Staging | https://staging.larn-like.vercel.app | https://staging.larn-like.vercel.app/api | Pre-production testing |
-| Production | https://larn-like.vercel.app | https://larn-like.vercel.app/api | Live environment |
+| Development | http://localhost:5173 | http://localhost:3000/api **(Epic 5)** | Local development |
+| Staging | https://staging.larn-like.vercel.app | https://staging.larn-like.vercel.app/api **(Epic 5)** | Pre-production testing |
+| Production | https://larn-like.vercel.app | https://larn-like.vercel.app/api **(Epic 5)** | Live environment |
 
 ---

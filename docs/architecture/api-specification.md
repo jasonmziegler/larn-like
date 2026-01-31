@@ -1,5 +1,7 @@
 # API Specification
 
+> **PHASE NOTE:** This entire API specification is deferred to Epic 5 (Cloud Persistence & Multiplayer). For Epics 1-4, all game logic and persistence runs client-side using localStorage/IndexedDB. No REST API or WebSocket connections are needed.
+
 The API design follows the hybrid REST + WebSockets approach from our tech stack, with REST endpoints for user actions and WebSocket connections for real-time world updates. All endpoints use the shared TypeScript interfaces defined in our data models.
 
 ## REST API Specification
@@ -7,7 +9,7 @@ The API design follows the hybrid REST + WebSockets approach from our tech stack
 ```yaml
 openapi: 3.0.0
 info:
-  title: Larn-Like Web3 Dungeon Crawler API
+  title: Larn-Like Dungeon Crawler API
   version: 1.0.0
   description: RESTful API for game actions and world state management
 servers:

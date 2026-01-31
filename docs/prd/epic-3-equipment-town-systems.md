@@ -1,16 +1,16 @@
 # Epic 3: Equipment & Town Systems
 
-**Epic Goal:** Implement the complete 9-slot equipment system, town merchant interface for teeth-based purchases, and dungeon chest distribution for monster inventory overflow. This epic creates the full economic loop where collected teeth currency enables equipment upgrades, while the structured equipment system ensures manageable complexity for both players and monsters carrying trophy gear from defeated heroes.
+**Epic Goal:** Implement the complete 10-slot equipment system, town merchant interface for teeth-based purchases, and dungeon chest distribution for monster inventory overflow. This epic creates the full economic loop where collected teeth currency enables equipment upgrades, while the structured equipment system ensures manageable complexity for both players and monsters carrying trophy gear from defeated heroes.
 
 ## Story 3.1: Comprehensive Equipment Slot System
 As a player,
-I want a structured equipment system with 9 defined slots,
+I want a structured equipment system with 10 defined slots,
 so that I can strategically equip gear while understanding exactly what items can be worn simultaneously.
 
 ### Acceptance Criteria
 1. Equipment slots implemented: 1 weapon OR 1 off-hand + 1 weapon OR 1 two-handed weapon, helmet, body armor, gloves, boots, 2x rings, 1 amulet, belt
 2. Equipment slot constraints prevent invalid combinations (two-handed weapon blocks off-hand slot)
-3. Visual equipment panel clearly shows all 9 slots with equipped/empty status
+3. Visual equipment panel clearly shows all 10 slots with equipped/empty status
 4. Drag-and-drop or hotkey equipment management for efficient gear swapping
 5. Equipped items provide appropriate stat bonuses that update character stats immediately
 6. Equipment removal returns items to inventory with proper slot availability checking
@@ -43,11 +43,11 @@ so that I can discover additional gear beyond basic merchant purchases and monst
 
 ## Story 3.4: Monster Equipment Slot Management
 As a system,
-I want monsters to follow the same 9-slot equipment constraints as players,
+I want monsters to follow the same 10-slot equipment constraints as players,
 so that promoted monsters carrying trophy gear remain manageable and don't become overly complex.
 
 ### Acceptance Criteria
-1. Monsters use identical 9-slot equipment system as players with same constraints
+1. Monsters use identical 10-slot equipment system as players with same constraints
 2. When monster equipment slots are full, overflow items automatically distribute to nearby dungeon chests
 3. Monster equipment display in detail panels shows organized slot-based layout
 4. Trophy equipment from defeated heroes properly fills monster slots according to item types
