@@ -3,6 +3,7 @@ import { TitleScreen } from './ui/TitleScreen';
 import { CharacterNamingScreen } from './ui/CharacterNamingScreen';
 import { GameHUD } from './ui/GameHUD';
 import { InventoryPanel, groupReagents, getReagents } from './ui/InventoryPanel';
+import { DeathScreen } from './ui/DeathScreen';
 import { GAME_CONSTANTS, LAYOUT, MONSTER_DEFINITIONS, Hero } from '@larn-like/shared';
 import { createHero } from './game/Hero';
 import { findEmptySpot, Position, DungeonGrid } from './game/DungeonGenerator';
@@ -11,6 +12,7 @@ import { consumeReagent } from './game/Inventory';
 import { WorldState, DungeonLevelRecord } from './world/WorldState';
 import { getOrGenerateLevel } from './game/LevelManager';
 import { getTownSpawnPosition } from './game/TownGenerator';
+import { processHeroDeath, DeathProcessingResult } from './world/DeathProcessor';
 
 // =============================================================================
 // DUNGEON PROTOTYPE WITH HERO SYSTEM
@@ -40,6 +42,7 @@ interface GameState {
   currentDepth: number;
   stairUpPos?: Position;
   stairDownPos?: Position;
+  deathResult?: DeathProcessingResult;
 }
 
 // Constants - viewport dimensions (visible area)
@@ -107,7 +110,10 @@ function gameStateToLevelRecord(state: GameState): DungeonLevelRecord {
       maxHealth: m.maxHealth,
       attack: m.attack,
       defense: m.defense,
-      type: m.type,
+      type: m.type || 'unknown',
+      isEvolved: m.isEvolved,
+      evolutionLevel: m.evolutionLevel,
+      killHistory: m.killHistory,
     })),
     items: state.items.map(item => ({
       id: (item as Entity & { type: 'teeth'; value: number; _persistId?: string })._persistId || generateTeethId(),
@@ -137,11 +143,14 @@ async function initGame(heroName: string, worldState: WorldState, depth: number 
     attack: m.attack,
     defense: m.defense,
     type: m.type,
+    isEvolved: m.isEvolved || false,
+    evolutionLevel: m.evolutionLevel || 0,
+    killHistory: m.killHistory || [],
     _persistId: m.id,
   } as Monster & { _persistId: string }));
 
-  // If this is a freshly generated dungeon level (not town), populate with monsters
-  if (depth >= 1 && monsters.length === 0) {
+  // Only populate monsters if this is a newly generated dungeon level (not loaded from save)
+  if (depth >= 1 && monsters.length === 0 && level.isNewlyGenerated) {
     const occupied: Position[] = [];
 
     // Add staircase positions to occupied list
@@ -170,6 +179,9 @@ async function initGame(heroName: string, worldState: WorldState, depth: number 
         attack: def.baseAttack,
         defense: def.baseDefense,
         type: def.type,
+        isEvolved: false,
+        evolutionLevel: 0,
+        killHistory: [],
         _persistId: generateMonsterId(),
       } as Monster & { _persistId: string };
 
@@ -185,11 +197,11 @@ async function initGame(heroName: string, worldState: WorldState, depth: number 
   // Determine hero spawn position
   let heroPos: Position;
 
-  if (arrivalStairType === 'up' && level.stairUpPos) {
-    // Arriving via staircase down (coming from above), spawn at staircase up
+  if (arrivalStairType === 'down' && level.stairUpPos) {
+    // Descended (took stairs down), came from above → spawn at up staircase
     heroPos = level.stairUpPos;
-  } else if (arrivalStairType === 'down' && level.stairDownPos) {
-    // Arriving via staircase up (coming from below), spawn at staircase down
+  } else if (arrivalStairType === 'up' && level.stairDownPos) {
+    // Ascended (took stairs up), came from below → spawn at down staircase
     heroPos = level.stairDownPos;
   } else if (depth === 0) {
     // Spawning in town for the first time
@@ -244,9 +256,9 @@ function clamp(value: number, min: number, max: number): number {
 // GAME LOGIC
 // =============================================================================
 
-function persistLevel(state: GameState, worldState: WorldState): void {
+async function persistLevel(state: GameState, worldState: WorldState): Promise<void> {
   const levelRecord = gameStateToLevelRecord(state);
-  worldState.saveLevel(levelRecord).catch(console.error);
+  await worldState.saveLevel(levelRecord);
 }
 
 async function transitionToLevel(
@@ -256,7 +268,7 @@ async function transitionToLevel(
   worldState: WorldState
 ): Promise<GameState> {
   // Save current level state before transitioning
-  persistLevel(state, worldState);
+  await persistLevel(state, worldState);
 
   // Load or generate the new level
   const newState = await initGame(state.hero.name, worldState, newDepth, arrivalStairType);
@@ -344,7 +356,7 @@ async function tryMove(state: GameState, dx: number, dy: number, worldState: Wor
 
     if (result.monsterKilled) {
       // Persist level with updated monster list
-      persistLevel(state, worldState);
+      await persistLevel(state, worldState);
 
       if (state.monsters.length === 0) {
         state.victory = true;
@@ -352,11 +364,24 @@ async function tryMove(state: GameState, dx: number, dy: number, worldState: Wor
         state.messages.unshift('*** VICTORY! All monsters slain! Press R to restart. ***');
       }
     }
-    if (result.heroKilled) {
+    if (result.heroKilled && result.killerMonster) {
       state.gameOver = true;
+      // Process death event and monster promotion
+      const deathResult = await processHeroDeath(
+        state.hero,
+        result.killerMonster,
+        worldState,
+        state.currentDepth
+      );
+      state.deathResult = deathResult;
+      // Remove killer monster from current level
+      const killerIndex = state.monsters.indexOf(result.killerMonster);
+      if (killerIndex !== -1) {
+        state.monsters.splice(killerIndex, 1);
+      }
       // Save world state on hero death
       worldState.setCurrentHero(state.hero);
-      persistLevel(state, worldState);
+      await persistLevel(state, worldState);
       worldState.saveWorld().catch(console.error);
     }
     return;
@@ -375,10 +400,24 @@ async function tryMove(state: GameState, dx: number, dy: number, worldState: Wor
 
       if (!fleeResult.success) {
         // Hero stays in place, already took free attack damage
-        if (!state.hero.isAlive) {
+        if (!state.hero.isAlive && fleeResult.killerMonster) {
           state.gameOver = true;
+          // Process death event and monster promotion
+          const deathResult = await processHeroDeath(
+            state.hero,
+            fleeResult.killerMonster,
+            worldState,
+            state.currentDepth
+          );
+          state.deathResult = deathResult;
+          // Remove killer monster from current level
+          const killerIndex = state.monsters.indexOf(fleeResult.killerMonster);
+          if (killerIndex !== -1) {
+            state.monsters.splice(killerIndex, 1);
+          }
           // Save world state on hero death
           worldState.setCurrentHero(state.hero);
+          await persistLevel(state, worldState);
           worldState.saveWorld().catch(console.error);
         }
         return;
@@ -408,7 +447,7 @@ async function tryMove(state: GameState, dx: number, dy: number, worldState: Wor
     // Save hero and level state on teeth pickup
     worldState.setCurrentHero(state.hero);
     worldState.saveHero().catch(console.error);
-    persistLevel(state, worldState);
+    await persistLevel(state, worldState);
   }
 
   // Monsters move toward hero
@@ -454,7 +493,13 @@ function isInViewport(x: number, y: number, state: GameState): boolean {
          y >= state.cameraY && y < state.cameraY + VIEWPORT_ROWS;
 }
 
-function render(renderer: CanvasRenderer, hud: GameHUD, state: GameState, inventoryPanel?: InventoryPanel): void {
+function render(renderer: CanvasRenderer, hud: GameHUD, state: GameState, deathScreen: DeathScreen, inventoryPanel?: InventoryPanel): void {
+  // Show death screen if game over and death result exists
+  if (state.gameOver && !state.victory && state.deathResult) {
+    deathScreen.render(state.hero.name, state.deathResult);
+    return;
+  }
+
   renderer.clear();
 
   const mapOffsetY = LAYOUT.ROW_MAP_START + 1; // +1 for top border row of map box
@@ -546,6 +591,7 @@ async function init(): Promise<void> {
   namingScreen.setWorldState(worldState); // Enable world reset
   const hud = new GameHUD(renderer);
   const inventoryPanel = new InventoryPanel(renderer);
+  const deathScreen = new DeathScreen(renderer);
   let gameInputHandler: ((e: KeyboardEvent) => void) | null = null;
 
   // Sync credits: WorldState is source of truth, TitleScreen is the UI
@@ -587,14 +633,14 @@ async function init(): Promise<void> {
     worldState.saveLevel(levelRecord).catch(console.error);
     worldState.saveHero().catch(console.error);
 
-    render(renderer, hud, state, inventoryPanel);
+    render(renderer, hud, state, deathScreen, inventoryPanel);
 
     gameInputHandler = (e: KeyboardEvent) => {
       // Inventory toggle keys
       if (e.key === 'i' || e.key === 'I' || e.key === 'Tab') {
         e.preventDefault();
         inventoryPanel.toggle();
-        render(renderer, hud, state, inventoryPanel);
+        render(renderer, hud, state, deathScreen, inventoryPanel);
         return;
       }
 
@@ -603,7 +649,7 @@ async function init(): Promise<void> {
         if (e.key === 'Escape') {
           e.preventDefault();
           inventoryPanel.close();
-          render(renderer, hud, state, inventoryPanel);
+          render(renderer, hud, state, deathScreen, inventoryPanel);
           return;
         }
 
@@ -618,7 +664,7 @@ async function init(): Promise<void> {
               state.messages.unshift(result.message);
             }
           }
-          render(renderer, hud, state, inventoryPanel);
+          render(renderer, hud, state, deathScreen, inventoryPanel);
           return;
         }
         return;
@@ -672,14 +718,14 @@ async function init(): Promise<void> {
         // Handle async tryMove with level transition callback
         tryMove(state, dx, dy, worldState, (newState) => {
           state = newState;
-          render(renderer, hud, state, inventoryPanel);
+          render(renderer, hud, state, deathScreen, inventoryPanel);
         }).then(() => {
-          render(renderer, hud, state, inventoryPanel);
+          render(renderer, hud, state, deathScreen, inventoryPanel);
         });
         return;
       }
 
-      render(renderer, hud, state, inventoryPanel);
+      render(renderer, hud, state, deathScreen, inventoryPanel);
     };
 
     document.addEventListener('keydown', gameInputHandler);

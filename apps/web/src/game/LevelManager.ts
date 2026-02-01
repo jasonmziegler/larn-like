@@ -17,6 +17,7 @@ export interface GameLevel {
   items: { pos: Position; char: string; color: string; name: string; type: 'teeth'; value: number; _persistId?: string }[];
   stairUpPos?: Position;
   stairDownPos?: Position;
+  isNewlyGenerated?: boolean;
 }
 
 const DUNGEON_WIDTH = 120;
@@ -35,7 +36,9 @@ export async function getOrGenerateLevel(depth: number, worldState: WorldState):
   // Try to load existing level
   const existing = worldState.getLevel(depth);
   if (existing) {
-    return levelRecordToGameLevel(existing, depth);
+    const loadedLevel = levelRecordToGameLevel(existing, depth);
+    loadedLevel.isNewlyGenerated = false;
+    return loadedLevel;
   }
 
   // Generate new level
@@ -48,6 +51,9 @@ export async function getOrGenerateLevel(depth: number, worldState: WorldState):
     // Generate dungeon level
     gameLevel = generateDungeonLevel(depth);
   }
+
+  // Mark as newly generated
+  gameLevel.isNewlyGenerated = true;
 
   // Persist the newly generated level
   const record = gameLevelToRecord(gameLevel);
