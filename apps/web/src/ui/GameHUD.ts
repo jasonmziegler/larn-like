@@ -1,6 +1,7 @@
 import { CanvasRenderer } from '../rendering/CanvasRenderer';
 import { Hero, GAME_CONSTANTS } from '@larn-like/shared';
 import { getEffectiveAttack, getEffectiveDefense } from '../game/Hero';
+import { Monster, getMonsterHpColor } from '../game/Combat';
 
 const COLORS = GAME_CONSTANTS.COLORS;
 
@@ -27,6 +28,14 @@ export class GameHUD {
     this.renderer.drawText('[WASD/Numpad] [R]Title', 54, row, COLORS.TEXT_DIM);
   }
 
+  public renderAdjacentMonster(monster: Monster | null, row: number): void {
+    if (!monster) return;
+
+    const hpColor = getMonsterHpColor(monster);
+    const hpText = `${monster.char} ${monster.name} HP:${monster.health}/${monster.maxHealth}`;
+    this.renderer.drawText(hpText, 2, row, hpColor);
+  }
+
   public renderStatsPanel(hero: Hero, col: number, startRow: number): void {
     this.renderer.drawText(`${hero.name} Lv${hero.level}`, col, startRow, COLORS.TEXT_BRIGHT);
 
@@ -35,11 +44,21 @@ export class GameHUD {
       `HP: ${hero.currentStats.hp}/${hero.currentStats.maxHp}`,
       col, startRow + 1, healthColor
     );
-    this.renderer.drawText(`STR: ${hero.currentStats.strength}`, col, startRow + 2, COLORS.TEXT_NORMAL);
-    this.renderer.drawText(`DEX: ${hero.currentStats.dexterity}`, col, startRow + 3, COLORS.TEXT_NORMAL);
-    this.renderer.drawText(`CON: ${hero.currentStats.constitution}`, col, startRow + 4, COLORS.TEXT_NORMAL);
+
+    this.renderStatLine('STR', hero.currentStats.strength, hero.baseStats.strength, col, startRow + 2);
+    this.renderStatLine('DEX', hero.currentStats.dexterity, hero.baseStats.dexterity, col, startRow + 3);
+    this.renderStatLine('CON', hero.currentStats.constitution, hero.baseStats.constitution, col, startRow + 4);
     this.renderer.drawText(`ATK: ${getEffectiveAttack(hero)}`, col, startRow + 5, COLORS.TEXT_DIM);
     this.renderer.drawText(`DEF: ${getEffectiveDefense(hero)}`, col, startRow + 6, COLORS.TEXT_DIM);
+  }
+
+  private renderStatLine(label: string, current: number, base: number, col: number, row: number): void {
+    const bonus = current - base;
+    const hasBonusApplied = Math.abs(bonus) > 0.001;
+    const valueStr = hasBonusApplied ? current.toFixed(1) : `${current}`;
+    const bonusStr = hasBonusApplied ? ` (+${bonus.toFixed(1)})` : '';
+    const color = hasBonusApplied ? COLORS.TEXT_BRIGHT : COLORS.TEXT_NORMAL;
+    this.renderer.drawText(`${label}: ${valueStr}${bonusStr}`, col, row, color);
   }
 
   public renderEquipmentPanel(hero: Hero, col: number, startRow: number): void {
