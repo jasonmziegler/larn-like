@@ -542,6 +542,12 @@ function render(renderer: CanvasRenderer, hud: GameHUD, state: GameState, deathS
   const adjacent = getAdjacentMonster(state.heroPos.x, state.heroPos.y, state.monsters);
   hud.renderAdjacentMonster(adjacent, LAYOUT.ROW_MONSTER_INFO);
 
+  // Draw equipment info on right side of row 2
+    const weapon = state.hero.equipment.weapon;
+    const armor = state.hero.equipment.bodyArmor;
+    const equipText = `Wpn: ${weapon?.name || 'none'}  Arm: ${armor?.name || 'none'}`;
+    renderer.drawText(equipText, 35, LAYOUT.ROW_MONSTER_INFO, COLORS.TEXT_DIM);
+
   // Draw action log (rows 24-29, newest at top)
   for (let i = 0; i < Math.min(LAYOUT.ACTION_LOG_LINES, state.messages.length); i++) {
     const msg = state.messages[i];
