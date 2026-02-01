@@ -39,7 +39,7 @@ so that death consequences are immediate and visible without complex queue manag
 3. Evolved monsters persist on their assigned levels until killed by players
 4. Simple promotion logic: +1 level depth, +50% HP, equipment transferred
 5. Maximum 3 evolved monsters per level to maintain balance and performance
-6. Database stores evolved monster data efficiently with kill history and equipment
+6. Local storage persists evolved monster data efficiently with kill history and equipment
 
 ## Story 4.4: MVP Scaling Foundation
 As a developer,
@@ -47,11 +47,11 @@ I want the technical foundation to support post-MVP scaling to deeper levels,
 so that infinite dungeon features can be added later without major architecture changes.
 
 ### Acceptance Criteria
-1. Database schema supports levels beyond 15 without structural changes
+1. Local storage schema supports levels beyond 15 without structural changes
 2. Level generation algorithm can extend to deeper levels with parameter changes
 3. Monster evolution system supports multiple promotions through simple iteration
 4. Performance monitoring in place for identifying scaling bottlenecks
 5. Caching strategy handles 15 levels efficiently with extension points for more
-6. API endpoints designed to support expanded depth ranges in future versions
+6. Storage interface designed to support expanded depth ranges and future cloud migration (Epic 5)
 
 ---

@@ -3,6 +3,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { GameHUD } from '../../../src/ui/GameHUD';
 import { CanvasRenderer } from '../../../src/rendering/CanvasRenderer';
 import { createHero } from '../../../src/game/Hero';
+import { LAYOUT, GAME_CONSTANTS } from '@larn-like/shared';
+import { Monster } from '../../../src/game/Combat';
 
 function createMockRenderer(): CanvasRenderer {
   return {
@@ -23,7 +25,7 @@ describe('GameHUD', () => {
       const hud = new GameHUD(renderer);
       const hero = createHero('TestHero');
 
-      hud.renderStatusBar(hero, 3, 22);
+      hud.renderStatusBar(hero, 3, LAYOUT.ROW_STATUS_BAR);
 
       const calls = (renderer.drawText as ReturnType<typeof vi.fn>).mock.calls;
       const allText = calls.map((c: unknown[]) => c[0]).join(' ');
@@ -41,7 +43,7 @@ describe('GameHUD', () => {
       const hero = createHero('TestHero');
       hero.currentStats.hp = 5;
 
-      hud.renderStatusBar(hero, 0, 22);
+      hud.renderStatusBar(hero, 0, LAYOUT.ROW_STATUS_BAR);
 
       const calls = (renderer.drawText as ReturnType<typeof vi.fn>).mock.calls;
       // First call is HP text, should use HEALTH_CRITICAL color
@@ -68,6 +70,106 @@ describe('GameHUD', () => {
       expect(allText).toContain('CON: 10');
       expect(allText).toContain('ATK: 12');
       expect(allText).toContain('DEF: 6');
+    });
+  });
+
+  describe('renderAdjacentMonster', () => {
+    it('should render monster info when monster is provided', () => {
+      const renderer = createMockRenderer();
+      const hud = new GameHUD(renderer);
+      const monster: Monster = {
+        pos: { x: 5, y: 5 },
+        char: 'g',
+        color: '#00CC00',
+        name: 'Goblin',
+        health: 8,
+        maxHealth: 10,
+        attack: 3,
+        defense: 1,
+        type: 'goblin',
+      };
+
+      hud.renderAdjacentMonster(monster, LAYOUT.ROW_MONSTER_INFO);
+
+      const calls = (renderer.drawText as ReturnType<typeof vi.fn>).mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
+      const allText = calls.map((c: unknown[]) => c[0]).join(' ');
+      expect(allText).toContain('g Goblin HP:8/10');
+    });
+
+    it('should not render anything when monster is null', () => {
+      const renderer = createMockRenderer();
+      const hud = new GameHUD(renderer);
+
+      hud.renderAdjacentMonster(null, LAYOUT.ROW_MONSTER_INFO);
+
+      expect(renderer.drawText).not.toHaveBeenCalled();
+    });
+
+    it('should use green color for healthy monster (>50% HP)', () => {
+      const renderer = createMockRenderer();
+      const hud = new GameHUD(renderer);
+      const monster: Monster = {
+        pos: { x: 5, y: 5 },
+        char: 'g',
+        color: '#00CC00',
+        name: 'Goblin',
+        health: 8,
+        maxHealth: 10,
+        attack: 3,
+        defense: 1,
+        type: 'goblin',
+      };
+
+      hud.renderAdjacentMonster(monster, LAYOUT.ROW_MONSTER_INFO);
+
+      const calls = (renderer.drawText as ReturnType<typeof vi.fn>).mock.calls;
+      // Green for >50% HP
+      expect(calls[0][3]).toBe(GAME_CONSTANTS.COLORS.TEXT_BRIGHT);
+    });
+
+    it('should use yellow color for wounded monster (25-50% HP)', () => {
+      const renderer = createMockRenderer();
+      const hud = new GameHUD(renderer);
+      const monster: Monster = {
+        pos: { x: 5, y: 5 },
+        char: 'g',
+        color: '#00CC00',
+        name: 'Goblin',
+        health: 4,
+        maxHealth: 10,
+        attack: 3,
+        defense: 1,
+        type: 'goblin',
+      };
+
+      hud.renderAdjacentMonster(monster, LAYOUT.ROW_MONSTER_INFO);
+
+      const calls = (renderer.drawText as ReturnType<typeof vi.fn>).mock.calls;
+      // Yellow for 25-50% HP
+      expect(calls[0][3]).toBe(GAME_CONSTANTS.COLORS.GOLD_COLOR);
+    });
+
+    it('should use red color for critical monster (<25% HP)', () => {
+      const renderer = createMockRenderer();
+      const hud = new GameHUD(renderer);
+      const monster: Monster = {
+        pos: { x: 5, y: 5 },
+        char: 'g',
+        color: '#00CC00',
+        name: 'Goblin',
+        health: 2,
+        maxHealth: 10,
+        attack: 3,
+        defense: 1,
+        type: 'goblin',
+      };
+
+      hud.renderAdjacentMonster(monster, LAYOUT.ROW_MONSTER_INFO);
+
+      const calls = (renderer.drawText as ReturnType<typeof vi.fn>).mock.calls;
+      // Red for <25% HP
+      expect(calls[0][3]).toBe(GAME_CONSTANTS.COLORS.HEALTH_CRITICAL);
     });
   });
 

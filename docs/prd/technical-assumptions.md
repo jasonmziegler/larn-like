@@ -6,7 +6,7 @@ Single repository containing frontend game client and backend world persistence 
 
 ## Service Architecture
 
-**Local-first hybrid architecture** combining client-side game execution with server-side world state persistence. Game mechanics (combat, movement, inventory) run locally in browser for optimal performance, while monster evolution, teeth placement, and dungeon generation sync to backend services. This ensures offline playability while maintaining persistent world state across devices and sessions.
+**Browser-local architecture** with all game mechanics and world state persistence running client-side using localStorage/IndexedDB. Cloud sync and server-side persistence are deferred to Epic 5 (Cloud Persistence & Multiplayer).
 
 ## Testing Requirements
 
@@ -15,7 +15,7 @@ Single repository containing frontend game client and backend world persistence 
 ## Additional Technical Assumptions and Requests
 
 - **Frontend Stack:** Vanilla TypeScript with Canvas 2D API for ASCII rendering, optimized for 60fps performance and minimal bundle size
-- **Backend Services:** Vercel serverless functions with Supabase PostgreSQL for world state persistence and real-time synchronization
+- **Local Persistence:** Browser localStorage/IndexedDB for world state persistence. Cloud backend (Vercel/Supabase) deferred to Epic 5
 - **Equipment System:** Fixed 9 equipment slots per entity (weapon/off-hand OR two-handed, helmet, body armor, gloves, boots, 2x rings, amulet, belt) with overflow items distributed to dungeon chests when monster inventory is full
 - **Monster Display Architecture:** Single ASCII character monsters with paginated detail panels showing evolution history, equipment, and kill statistics
 - **Dungeon Population System:** Density-based monster limits per level with evolved monster queue system that repopulates levels during room regeneration cycles

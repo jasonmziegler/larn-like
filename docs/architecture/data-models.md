@@ -270,25 +270,31 @@ interface DeathEvent {
 
 ## Local Persistence Architecture (Epics 1-4)
 
-For Epics 1-4, all game state is persisted to the browser using localStorage. Cloud persistence (Supabase) is deferred to Epic 5.
+For Epics 1-4, all game state is persisted to the browser using IndexedDB. Cloud persistence (Supabase) is deferred to Epic 5.
 
-### localStorage Key Schema
+### IndexedDB Database Schema
 
-| Key | Contents | Max Size Estimate |
-|-----|----------|-------------------|
-| `larn-like-credits` | Credit counter (number) | < 1 KB |
-| `larn-like-hero` | Current hero state (Hero JSON) | ~5 KB |
-| `larn-like-world` | World metadata, death events, shrines index | ~50 KB |
-| `larn-like-levels` | Generated dungeon levels with monsters, chests, teeth, shrines | ~2-5 MB |
+**Database name:** `larn-like-db`
+**Version:** 1
 
-### Serialization Format
+| Object Store | keyPath | Indexes | Purpose |
+|--------------|---------|---------|---------|
+| `worldMeta` | `key` | — | Schema version, credits, lastSaved timestamp |
+| `heroes` | `id` | `isAlive` | Current and past hero records |
+| `dungeonLevels` | `depth` | — | Generated level layouts with rooms, corridors, stairs |
+| `monsters` | `id` | `levelDepth`, `isEvolved` | All monster instances (baseline and evolved) |
+| `deathEvents` | `id` | `timestamp`, `levelDepth` | Immutable death records for event sourcing |
+| `soulShrines` | `id` | `levelDepth`, `isActive` | Shrine placement and blessing state |
+| `teethDrops` | `id` | `levelDepth` | Teeth currency at death sites |
 
-All values are stored as `JSON.stringify()` output with the following conventions:
+### Storage Format
 
-- **Dates:** Serialized as ISO 8601 strings (`toISOString()`), parsed back with `new Date()`
-- **Maps:** Serialized as array-of-pairs (`Array.from(map.entries())`), reconstructed with `new Map(pairs)`
-- **Sets:** Serialized as arrays (`Array.from(set)`), reconstructed with `new Set(array)`
+IndexedDB stores structured JavaScript objects natively — no JSON serialization is required for reads and writes. Conventions:
+
+- **Dates:** Stored as ISO 8601 strings for indexing compatibility, parsed back with `new Date()`
 - **Enums:** Stored as string values for readability and forward compatibility
+- **References:** Store IDs as strings; resolve relationships by querying the relevant object store
+- **No Maps/Sets:** Use plain objects and arrays for IndexedDB compatibility
 
 ### LocalWorldState Interface
 
@@ -303,31 +309,62 @@ interface LocalWorldState {
   /** All death events for this browser's history */
   deathEvents: DeathEvent[];
   /** Generated dungeon levels keyed by depth */
-  levels: Map<number, DungeonLevel>;
+  levels: DungeonLevel[];
   /** Timestamp of last save */
-  lastSaved: Date;
+  lastSaved: string;
+}
+```
+
+### Database Initialization
+
+```typescript
+// Schema creation in onupgradeneeded handler
+function onUpgradeNeeded(db: IDBDatabase, oldVersion: number): void {
+  if (oldVersion < 1) {
+    db.createObjectStore('worldMeta', { keyPath: 'key' });
+
+    const heroStore = db.createObjectStore('heroes', { keyPath: 'id' });
+    heroStore.createIndex('isAlive', 'isAlive');
+
+    db.createObjectStore('dungeonLevels', { keyPath: 'depth' });
+
+    const monsterStore = db.createObjectStore('monsters', { keyPath: 'id' });
+    monsterStore.createIndex('levelDepth', 'level');
+    monsterStore.createIndex('isEvolved', 'isEvolved');
+
+    const deathStore = db.createObjectStore('deathEvents', { keyPath: 'id' });
+    deathStore.createIndex('timestamp', 'processedAt');
+    deathStore.createIndex('levelDepth', 'location.depth');
+
+    const shrineStore = db.createObjectStore('soulShrines', { keyPath: 'id' });
+    shrineStore.createIndex('levelDepth', 'level');
+    shrineStore.createIndex('isActive', 'isActive');
+
+    const teethStore = db.createObjectStore('teethDrops', { keyPath: 'id' });
+    teethStore.createIndex('levelDepth', 'level');
+  }
+  // Future versions add migrations here: if (oldVersion < 2) { ... }
 }
 ```
 
 ### Quota Management
 
-Browser localStorage is typically limited to 5-10 MB per origin.
+IndexedDB storage is typically limited to ~50% of available disk space per origin, which is significantly more generous than localStorage's 5-10 MB limit. Quota issues are unlikely for this game but are handled defensively:
 
-- **Usage monitoring:** Check `navigator.storage.estimate()` (where available) or calculate total serialized size on each save
+- **Usage monitoring:** Check `navigator.storage.estimate()` on save operations
 - **Warning threshold:** Display a user notification when storage exceeds 80% of estimated quota
 - **Mitigation strategies:**
   - Prune oldest death events beyond a configurable cap (e.g., keep last 200)
-  - Compress level data for levels the hero has not visited recently
-  - Offer the player an "export save" option (download JSON file) before storage is full
-- **Graceful failure:** If `localStorage.setItem()` throws a `QuotaExceededError`, notify the player and skip the save rather than crashing
+  - Offer the player an "export save" option (download world state as JSON file) before storage is full
+- **Graceful failure:** If a write transaction fails due to quota, notify the player and skip the save rather than crashing
 
 ### Migration Path to Epic 5 (Cloud Persistence)
 
-The `version` field in `LocalWorldState` enables schema migrations. When Epic 5 introduces Supabase:
+The `version` field in `worldMeta` enables schema migrations. When Epic 5 introduces Supabase:
 
-1. Read local state and upload to Supabase as a one-time migration
-2. Map localStorage keys to their corresponding database tables (e.g., `larn-like-hero` → `heroes`, `larn-like-levels` → `dungeon_levels`)
-3. After successful cloud migration, local storage becomes a write-through cache for offline support
-4. The `version` field increments with each schema change, and a migration runner applies transforms sequentially
+1. Read all IndexedDB object stores and upload to corresponding Supabase tables as a one-time migration
+2. Object store → table mapping is nearly 1:1 (`heroes` → `heroes`, `dungeonLevels` → `dungeon_levels`, `monsters` → `monsters`, etc.)
+3. After successful cloud migration, IndexedDB becomes a write-through cache for offline support
+4. The database version increments with each schema change; the `onupgradeneeded` handler applies transforms sequentially
 
 ---

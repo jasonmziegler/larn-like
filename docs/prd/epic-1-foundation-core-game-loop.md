@@ -80,4 +80,20 @@ so that I can experience character progression during my current dungeon run.
 5. Multiple reagent consumption properly stacks bonuses (+0.1, +0.2, +0.3, etc.)
 6. Reagent effects last for entire hero lifespan and reset only on hero death
 
+## Story 1.7: UI Layout Expansion - Status Bar, Action Log & Monster Panel
+As a player,
+I want a clear, organized game interface with dedicated areas for status, combat log, and monster information,
+so that I can understand the current game state without text overlapping or information being lost.
+
+### Acceptance Criteria
+1. Canvas expands from 80x24 to 80x30 with dedicated panel regions
+2. Dedicated status bar displays HP, ATK, DEF, Teeth cleanly without overlap
+3. Adjacent monster info displays in a dedicated area separate from the map border
+4. Action log panel below the map shows at least 5 scrollable message lines
+5. Map viewport (78x20) continues to render correctly with border
+6. All existing functionality (movement, combat, title screen, naming) works unchanged
+7. Canvas scales appropriately in the browser window
+
+> **Implementation Note:** Story 1.7 should be implemented BEFORE Story 1.6 in execution order. Story 1.5 → 1.7 → 1.6.
+
 ---

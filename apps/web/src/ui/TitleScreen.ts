@@ -20,11 +20,13 @@ const BLINK_INTERVAL_MS = 600;
 const FLASH_DURATION_MS = 300;
 
 export type TitleScreenCallback = () => void;
+export type CreditsChangedCallback = (credits: number) => void;
 
 export class TitleScreen {
   private renderer: CanvasRenderer;
   private credits: number;
   private onGameStart: TitleScreenCallback | null = null;
+  private onCreditsChanged: CreditsChangedCallback | null = null;
   private flashTimer: number = 0;
   private flashType: 'credit' | 'error' | null = null;
   private blinkTimer: number = 0;
@@ -70,9 +72,20 @@ export class TitleScreen {
     this.saveCredits();
   }
 
+  public setOnCreditsChanged(callback: CreditsChangedCallback): void {
+    this.onCreditsChanged = callback;
+  }
+
+  private notifyCreditsChanged(): void {
+    if (this.onCreditsChanged) {
+      this.onCreditsChanged(this.credits);
+    }
+  }
+
   public addCredit(): void {
     this.credits++;
     this.saveCredits();
+    this.notifyCreditsChanged();
     this.triggerFlash('credit');
   }
 
@@ -83,6 +96,7 @@ export class TitleScreen {
     }
     this.credits--;
     this.saveCredits();
+    this.notifyCreditsChanged();
     this.hide();
     if (this.onGameStart) {
       this.onGameStart();
@@ -194,7 +208,7 @@ export class TitleScreen {
     // Draw subtitle
     const subtitle = 'A Web3 Dungeon Crawler';
     const subtitleX = Math.floor((VIEWPORT_WIDTH - subtitle.length) / 2);
-    this.renderer.drawText(subtitle, subtitleX, 9, COLORS.TEXT_DIM);
+    this.renderer.drawText(subtitle, subtitleX, 12, COLORS.TEXT_DIM);
 
     // Draw INSERT COIN prompt (blinking)
     this.renderInsertCoin();
@@ -207,7 +221,7 @@ export class TitleScreen {
   }
 
   private renderTitle(): void {
-    const startRow = 2;
+    const startRow = 5;
     for (let i = 0; i < TITLE_ART.length; i++) {
       const line = TITLE_ART[i];
       const x = Math.floor((VIEWPORT_WIDTH - line.length) / 2);
@@ -218,7 +232,7 @@ export class TitleScreen {
   private renderInsertCoin(): void {
     const text = '- - -  I N S E R T   C O I N  - - -';
     const x = Math.floor((VIEWPORT_WIDTH - text.length) / 2);
-    const row = 12;
+    const row = 15;
 
     if (this.blinkVisible) {
       const color = this.isFlashing('error') ? COLORS.HEALTH_CRITICAL : COLORS.TEXT_BRIGHT;
@@ -229,7 +243,7 @@ export class TitleScreen {
   private renderCredits(): void {
     const text = `CREDITS: ${this.credits}`;
     const x = Math.floor((VIEWPORT_WIDTH - text.length) / 2);
-    const row = 15;
+    const row = 18;
 
     let color: string = COLORS.TEXT_NORMAL;
     if (this.isFlashing('credit')) {
@@ -250,8 +264,8 @@ export class TitleScreen {
     const x1 = Math.floor((VIEWPORT_WIDTH - line1.length) / 2);
     const x2 = Math.floor((VIEWPORT_WIDTH - line2.length) / 2);
 
-    this.renderer.drawText(line1, x1, 18, COLORS.TEXT_DIM);
-    this.renderer.drawText(line2, x2, 20, COLORS.TEXT_DIM);
+    this.renderer.drawText(line1, x1, 21, COLORS.TEXT_DIM);
+    this.renderer.drawText(line2, x2, 23, COLORS.TEXT_DIM);
   }
 
   private isFlashing(type: 'credit' | 'error'): boolean {

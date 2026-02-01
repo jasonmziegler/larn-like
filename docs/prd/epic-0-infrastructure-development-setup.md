@@ -1,5 +1,7 @@
 # Epic 0: Infrastructure & Development Setup
 
+> **STATUS: DEFERRED** — This epic's Supabase infrastructure work has been deferred to Epic 5 (Cloud Persistence & Multiplayer). Epic 2 now uses browser-local persistence (localStorage/IndexedDB). Stories 0.1-0.4 will be revisited and adapted in Epic 5.
+
 **Epic Goal:** Establish complete development environment, external service integration, and deployment infrastructure before any game development begins. This epic ensures all developers have consistent, working environments with proper database and authentication setup, eliminating infrastructure blockers during core development.
 
 ## Story 0.1: Supabase Account Setup & API Configuration
