@@ -9,6 +9,7 @@ import { createHero } from './game/Hero';
 import { findEmptySpot, Position, DungeonGrid } from './game/DungeonGenerator';
 import { processCombat, processFlee, getAdjacentMonster, Monster } from './game/Combat';
 import { consumeReagent } from './game/Inventory';
+import { createEmptySlots } from './game/Equipment';
 import { WorldState, DungeonLevelRecord } from './world/WorldState';
 import { getOrGenerateLevel } from './game/LevelManager';
 import { getTownSpawnPosition } from './game/TownGenerator';
@@ -114,6 +115,7 @@ function gameStateToLevelRecord(state: GameState): DungeonLevelRecord {
       isEvolved: m.isEvolved,
       evolutionLevel: m.evolutionLevel,
       killHistory: m.killHistory,
+      equipment: m.equipment,
     })),
     items: state.items.map(item => ({
       id: (item as Entity & { type: 'teeth'; value: number; _persistId?: string })._persistId || generateTeethId(),
@@ -124,6 +126,7 @@ function gameStateToLevelRecord(state: GameState): DungeonLevelRecord {
       type: 'teeth' as const,
       value: item.value,
     })),
+    chests: [],
     generatedAt: new Date().toISOString(),
   };
 }
@@ -182,6 +185,7 @@ async function initGame(heroName: string, worldState: WorldState, depth: number 
         isEvolved: false,
         evolutionLevel: 0,
         killHistory: [],
+        equipment: createEmptySlots(),
         _persistId: generateMonsterId(),
       } as Monster & { _persistId: string };
 

@@ -56,7 +56,24 @@ export class DeathScreen {
       // Teeth dropped
       const teethMsg = `${summary.teethDropped} teeth scattered at death site`;
       this.renderer.drawText(teethMsg, centerX - Math.floor(teethMsg.length / 2), row, COLORS.TEXT_DIM);
-      row += 3;
+      row += 1;
+
+      // Equipment transfer info
+      if (deathResult.deathEvent.equipmentTransferred.length > 0) {
+        const equipNames = deathResult.deathEvent.equipmentTransferred.map((e: any) => e.name).join(', ');
+        const equipMsg = `The ${summary.killerName} claimed ${equipNames}`;
+        this.renderer.drawText(equipMsg, centerX - Math.floor(equipMsg.length / 2), row, '#FFAA00');
+        row += 1;
+      }
+
+      // Equipment overflow info
+      if (deathResult.deathEvent.equipmentScattered.length > 0) {
+        const overflowMsg = 'Remaining items scattered into a nearby chest';
+        this.renderer.drawText(overflowMsg, centerX - Math.floor(overflowMsg.length / 2), row, COLORS.TEXT_DIM);
+        row += 1;
+      }
+
+      row += 2;
     } else {
       // Fallback if no death result (shouldn't happen)
       const msg = `${heroName} has fallen.`;

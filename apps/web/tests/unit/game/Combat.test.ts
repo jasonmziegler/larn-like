@@ -13,6 +13,7 @@ import {
   REAGENT_DEFINITIONS,
 } from '../../../src/game/Combat';
 import { createHero, applyDamage } from '../../../src/game/Hero';
+import { createEmptySlots } from '../../../src/game/Equipment';
 import { Hero } from '@larn-like/shared';
 
 // Helper to create a test monster
@@ -27,6 +28,7 @@ function createMonster(overrides: Partial<Monster> = {}): Monster {
     attack: 5,
     defense: 2,
     type: 'goblin',
+    equipment: createEmptySlots(),
     ...overrides,
   };
 }

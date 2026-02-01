@@ -7,6 +7,7 @@ import type { DungeonGrid, Position } from './DungeonGenerator';
 import { generateDungeon } from './DungeonGenerator';
 import { generateTown } from './TownGenerator';
 import type { WorldState, DungeonLevelRecord, MonsterRecord } from '../world/WorldState';
+import { createEmptySlots } from './Equipment';
 
 export interface GameLevel {
   depth: number;
@@ -147,12 +148,18 @@ function levelRecordToGameLevel(record: DungeonLevelRecord, depth: number): Game
     _persistId: item.id,
   }));
 
+  // Ensure all monsters have equipment initialized (for backward compatibility)
+  const monstersWithEquipment = record.monsters.map(monster => ({
+    ...monster,
+    equipment: monster.equipment || createEmptySlots(),
+  }));
+
   return {
     depth,
     grid,
     width,
     height,
-    monsters: record.monsters,
+    monsters: monstersWithEquipment,
     items,
     stairUpPos,
     stairDownPos,
@@ -176,6 +183,7 @@ function gameLevelToRecord(level: GameLevel): DungeonLevelRecord {
       type: 'teeth',
       value: item.value,
     })),
+    chests: [],
     generatedAt: new Date().toISOString(),
   };
 }

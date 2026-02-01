@@ -67,10 +67,12 @@ export function getEquippedItems(slots: EquipmentSlots): EquipmentItem[] {
   return items;
 }
 
-export function getTotalAttackBonus(slots: EquipmentSlots): number {
+export function getTotalAttackBonus(slots: EquipmentSlots | undefined): number {
+  if (!slots) return 0;
   return getEquippedItems(slots).reduce((sum, item) => sum + item.attackBonus, 0);
 }
 
-export function getTotalDefenseBonus(slots: EquipmentSlots): number {
+export function getTotalDefenseBonus(slots: EquipmentSlots | undefined): number {
+  if (!slots) return 0;
   return getEquippedItems(slots).reduce((sum, item) => sum + item.defenseBonus, 0);
 }

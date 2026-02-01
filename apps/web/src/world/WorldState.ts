@@ -1,7 +1,7 @@
 // WorldState - manages game world state and coordinates persistence via WorldStore
 
 import { WorldStore, STORE_NAMES } from './WorldStore';
-import type { Hero } from '@larn-like/shared';
+import type { Hero, EquipmentSlots, EquipmentItem } from '@larn-like/shared';
 
 export interface LocalWorldState {
   /** Schema version for migration support */
@@ -36,6 +36,7 @@ export interface DungeonLevelRecord {
   dungeon: string[][]; // tile grid
   monsters: MonsterRecord[];
   items: TeethItemRecord[];
+  chests: DungeonChestRecord[];
   generatedAt: string; // ISO string
 }
 
@@ -54,7 +55,7 @@ export interface MonsterRecord {
   isEvolved?: boolean;
   evolutionLevel?: number;
   killHistory?: unknown[];
-  equipment?: unknown;
+  equipment: EquipmentSlots;
 }
 
 export interface TeethItemRecord {
@@ -65,6 +66,12 @@ export interface TeethItemRecord {
   name: string;
   type: 'teeth';
   value: number;
+}
+
+export interface DungeonChestRecord {
+  id: string;
+  pos: { x: number; y: number };
+  items: EquipmentItem[];
 }
 
 const CURRENT_VERSION = 1;

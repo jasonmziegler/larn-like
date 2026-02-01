@@ -1,8 +1,14 @@
 // DeathProcessor - handles hero death events and monster promotion logic
 
-import type { Hero } from '@larn-like/shared';
+import type { Hero, EquipmentItem } from '@larn-like/shared';
 import type { Monster } from '../game/Combat';
-import type { WorldState, DeathEventRecord, MonsterRecord } from './WorldState';
+import type { WorldState, DeathEventRecord, MonsterRecord, DungeonChestRecord } from './WorldState';
+import { createEmptySlots, getEquippedItems } from '../game/Equipment';
+
+export interface EquipmentTransferResult {
+  transferred: EquipmentItem[];
+  overflow: EquipmentItem[];
+}
 
 export interface DeathProcessingResult {
   deathEvent: DeathEventRecord;
@@ -21,6 +27,44 @@ export interface DeathProcessingResult {
 }
 
 /**
+ * Transfer equipment from dead hero to killer monster.
+ * Items that don't fit (occupied slots) become overflow.
+ *
+ * @param hero - The deceased hero
+ * @param killerMonster - The monster that killed the hero
+ * @returns Object with transferred items and overflow items
+ */
+export function transferEquipment(hero: Hero, killerMonster: Monster): EquipmentTransferResult {
+  // Ensure both hero and monster have equipment initialized
+  if (!hero.equipment) {
+    hero.equipment = createEmptySlots();
+  }
+  if (!killerMonster.equipment) {
+    killerMonster.equipment = createEmptySlots();
+  }
+
+  const heroItems = getEquippedItems(hero.equipment);
+  const transferred: EquipmentItem[] = [];
+  const overflow: EquipmentItem[] = [];
+
+  for (const item of heroItems) {
+    const slotKey = item.slot as keyof typeof killerMonster.equipment;
+
+    // Check if monster's slot is empty
+    if (killerMonster.equipment[slotKey] === null) {
+      // Transfer item to monster
+      killerMonster.equipment[slotKey] = item;
+      transferred.push(item);
+    } else {
+      // Slot occupied - item becomes overflow
+      overflow.push(item);
+    }
+  }
+
+  return { transferred, overflow };
+}
+
+/**
  * Process hero death event:
  * 1. Create death event record
  * 2. Promote killer monster to next dungeon level
@@ -36,6 +80,29 @@ export async function processHeroDeath(
   // Generate random teeth drop (1-32)
   const teethDropped = Math.floor(Math.random() * 32) + 1;
 
+  // Transfer hero equipment to killer monster
+  const equipmentTransfer = transferEquipment(hero, killerMonster);
+
+  // Handle equipment overflow - create chest if needed
+  if (equipmentTransfer.overflow.length > 0) {
+    const chest: DungeonChestRecord = {
+      id: `chest_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+      pos: { x: hero.position.x, y: hero.position.y },
+      items: equipmentTransfer.overflow,
+    };
+
+    // Add chest to current level
+    const currentLevel = worldState.getLevel(currentDepth);
+    if (currentLevel) {
+      const updatedChests = [...(currentLevel.chests || []), chest];
+      const updatedLevel = {
+        ...currentLevel,
+        chests: updatedChests,
+      };
+      await worldState.saveLevel(updatedLevel);
+    }
+  }
+
   // Create death event record
   const deathEvent: DeathEventRecord = {
     id: `death_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
@@ -48,8 +115,20 @@ export async function processHeroDeath(
       depth: currentDepth,
     },
     teethDropped,
-    equipmentTransferred: [],
-    equipmentScattered: [],
+    equipmentTransferred: equipmentTransfer.transferred.map(item => ({
+      id: item.id,
+      name: item.name,
+      slot: item.slot,
+      attackBonus: item.attackBonus,
+      defenseBonus: item.defenseBonus,
+    })),
+    equipmentScattered: equipmentTransfer.overflow.map(item => ({
+      id: item.id,
+      name: item.name,
+      slot: item.slot,
+      attackBonus: item.attackBonus,
+      defenseBonus: item.defenseBonus,
+    })),
     soulShrineCreated: false,
     processedAt: new Date().toISOString(),
   };
@@ -95,6 +174,7 @@ export async function processHeroDeath(
     isEvolved: true,
     evolutionLevel: (killerMonster.evolutionLevel || 0) + 1,
     killHistory,
+    equipment: killerMonster.equipment || createEmptySlots(),
   };
 
   // Get the target level and add the promoted monster

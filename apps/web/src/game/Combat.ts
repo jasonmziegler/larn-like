@@ -1,5 +1,6 @@
-import { Hero } from '@larn-like/shared';
+import { Hero, EquipmentSlots } from '@larn-like/shared';
 import { getEffectiveAttack, getEffectiveDefense, applyDamage } from './Hero';
+import { createEmptySlots, getTotalAttackBonus, getTotalDefenseBonus } from './Equipment';
 
 // =============================================================================
 // TYPES
@@ -18,6 +19,7 @@ export interface Monster {
   isEvolved?: boolean;
   evolutionLevel?: number;
   killHistory?: { heroName: string; killedAt: string }[];
+  equipment: EquipmentSlots;
 }
 
 export interface CombatResult {
@@ -128,7 +130,8 @@ function resolveMonsterRetaliation(hero: Hero, monster: Monster): {
 
   // Calculate raw damage
   const heroDef = getEffectiveDefense(hero);
-  const rawDamage = Math.max(1, monster.attack - heroDef + Math.floor(Math.random() * 3));
+  const monsterAtk = monster.attack + getTotalAttackBonus(monster.equipment);
+  const rawDamage = Math.max(1, monsterAtk - heroDef + Math.floor(Math.random() * 3));
 
   // Block check
   if (rollBlock(hero)) {
@@ -150,7 +153,8 @@ export function processCombat(hero: Hero, monster: Monster, monsters: Monster[])
 
   // Hero attacks monster
   const heroAtk = getEffectiveAttack(hero);
-  const heroDamage = Math.max(1, heroAtk - monster.defense + Math.floor(Math.random() * 5));
+  const monsterDef = monster.defense + getTotalDefenseBonus(monster.equipment);
+  const heroDamage = Math.max(1, heroAtk - monsterDef + Math.floor(Math.random() * 5));
   monster.health -= heroDamage;
   messages.push(`You hit ${monster.name} for ${heroDamage} damage!`);
 
