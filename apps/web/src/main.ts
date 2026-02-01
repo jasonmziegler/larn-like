@@ -2,9 +2,15 @@ import { CanvasRenderer } from './rendering/CanvasRenderer';
 import { TitleScreen } from './ui/TitleScreen';
 import { CharacterNamingScreen } from './ui/CharacterNamingScreen';
 import { GameHUD } from './ui/GameHUD';
-import { GAME_CONSTANTS, MONSTER_DEFINITIONS, Hero } from '@larn-like/shared';
-import { createHero, getEffectiveAttack, getEffectiveDefense, applyDamage } from './game/Hero';
-import { generateDungeon, findEmptySpot, Position, DungeonGrid } from './game/DungeonGenerator';
+import { InventoryPanel, groupReagents, getReagents } from './ui/InventoryPanel';
+import { GAME_CONSTANTS, LAYOUT, MONSTER_DEFINITIONS, Hero } from '@larn-like/shared';
+import { createHero } from './game/Hero';
+import { findEmptySpot, Position, DungeonGrid } from './game/DungeonGenerator';
+import { processCombat, processFlee, getAdjacentMonster, Monster } from './game/Combat';
+import { consumeReagent } from './game/Inventory';
+import { WorldState, DungeonLevelRecord } from './world/WorldState';
+import { getOrGenerateLevel } from './game/LevelManager';
+import { getTownSpawnPosition } from './game/TownGenerator';
 
 // =============================================================================
 // DUNGEON PROTOTYPE WITH HERO SYSTEM
@@ -16,13 +22,6 @@ interface Entity {
   char: string;
   color: string;
   name: string;
-}
-
-interface Monster extends Entity {
-  health: number;
-  maxHealth: number;
-  attack: number;
-  defense: number;
 }
 
 interface GameState {
@@ -38,14 +37,14 @@ interface GameState {
   messages: string[];
   gameOver: boolean;
   victory: boolean;
+  currentDepth: number;
+  stairUpPos?: Position;
+  stairDownPos?: Position;
 }
 
 // Constants - viewport dimensions (visible area)
 const VIEWPORT_COLS = 78;
 const VIEWPORT_ROWS = 20;
-// Actual dungeon dimensions (larger than viewport)
-const DUNGEON_WIDTH = 120;
-const DUNGEON_HEIGHT = 40;
 const COLORS = GAME_CONSTANTS.COLORS;
 
 // =============================================================================
@@ -83,79 +82,157 @@ function pickWeightedMonster(): keyof typeof MONSTER_DEFINITIONS {
   return 'GOBLIN';
 }
 
-function initGame(heroName: string = 'Hero'): GameState {
-  const { grid: dungeon } = generateDungeon({ width: DUNGEON_WIDTH, height: DUNGEON_HEIGHT });
-  const occupied: Position[] = [];
+let monsterIdCounter = 0;
+let teethIdCounter = 0;
 
-  // Place hero in first room
-  const heroPos = findEmptySpot(dungeon, occupied, DUNGEON_WIDTH, DUNGEON_HEIGHT);
-  occupied.push(heroPos);
+function generateMonsterId(): string {
+  return `mon_${Date.now()}_${++monsterIdCounter}`;
+}
+
+function generateTeethId(): string {
+  return `teeth_${Date.now()}_${++teethIdCounter}`;
+}
+
+function gameStateToLevelRecord(state: GameState): DungeonLevelRecord {
+  return {
+    depth: state.currentDepth,
+    dungeon: state.dungeon,
+    monsters: state.monsters.map(m => ({
+      id: (m as Monster & { _persistId?: string })._persistId || generateMonsterId(),
+      pos: { x: m.pos.x, y: m.pos.y },
+      char: m.char,
+      color: m.color,
+      name: m.name,
+      health: m.health,
+      maxHealth: m.maxHealth,
+      attack: m.attack,
+      defense: m.defense,
+      type: m.type,
+    })),
+    items: state.items.map(item => ({
+      id: (item as Entity & { type: 'teeth'; value: number; _persistId?: string })._persistId || generateTeethId(),
+      pos: { x: item.pos.x, y: item.pos.y },
+      char: item.char,
+      color: item.color,
+      name: item.name,
+      type: 'teeth' as const,
+      value: item.value,
+    })),
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+async function initGame(heroName: string, worldState: WorldState, depth: number = 0, arrivalStairType?: 'up' | 'down'): Promise<GameState> {
+  // Get or generate the level at the specified depth
+  const level = await getOrGenerateLevel(depth, worldState);
+
+  // Convert monster records to Monster format
+  const monsters: Monster[] = level.monsters.map(m => ({
+    pos: { x: m.pos.x, y: m.pos.y },
+    char: m.char,
+    color: m.color,
+    name: m.name,
+    health: m.health,
+    maxHealth: m.maxHealth,
+    attack: m.attack,
+    defense: m.defense,
+    type: m.type,
+    _persistId: m.id,
+  } as Monster & { _persistId: string }));
+
+  // If this is a freshly generated dungeon level (not town), populate with monsters
+  if (depth >= 1 && monsters.length === 0) {
+    const occupied: Position[] = [];
+
+    // Add staircase positions to occupied list
+    if (level.stairUpPos) occupied.push(level.stairUpPos);
+    if (level.stairDownPos) occupied.push(level.stairDownPos);
+
+    // Place monsters - scale count to dungeon size
+    const areaRatio = (level.width * level.height) / (78 * 20);
+    const baseCount = 3 + Math.floor(Math.random() * 3);
+    const monsterCount = Math.floor(baseCount * areaRatio);
+
+    for (let i = 0; i < monsterCount; i++) {
+      const pos = findEmptySpot(level.grid, occupied, level.width, level.height);
+      occupied.push(pos);
+
+      const monsterKey = pickWeightedMonster();
+      const def = MONSTER_DEFINITIONS[monsterKey];
+
+      const newMonster = {
+        pos,
+        char: def.asciiChar,
+        color: MONSTER_COLORS[def.type] || COLORS.TEXT_NORMAL,
+        name: def.name,
+        health: def.baseHealth,
+        maxHealth: def.baseHealth,
+        attack: def.baseAttack,
+        defense: def.baseDefense,
+        type: def.type,
+        _persistId: generateMonsterId(),
+      } as Monster & { _persistId: string };
+
+      monsters.push(newMonster);
+    }
+
+    // TODO: Epic 2 - Replace with death event teeth generation (Story 2.4)
+    // For now, no placeholder teeth in fresh levels (simplified)
+  }
+
+  const items = level.items;
+
+  // Determine hero spawn position
+  let heroPos: Position;
+
+  if (arrivalStairType === 'up' && level.stairUpPos) {
+    // Arriving via staircase down (coming from above), spawn at staircase up
+    heroPos = level.stairUpPos;
+  } else if (arrivalStairType === 'down' && level.stairDownPos) {
+    // Arriving via staircase up (coming from below), spawn at staircase down
+    heroPos = level.stairDownPos;
+  } else if (depth === 0) {
+    // Spawning in town for the first time
+    heroPos = getTownSpawnPosition({ width: level.width, height: level.height });
+  } else {
+    // Default: find an empty spot
+    const occupiedForHero = [
+      ...monsters.map(m => m.pos),
+      ...items.map(i => i.pos),
+    ];
+    if (level.stairUpPos) occupiedForHero.push(level.stairUpPos);
+    if (level.stairDownPos) occupiedForHero.push(level.stairDownPos);
+    heroPos = findEmptySpot(level.grid, occupiedForHero, level.width, level.height);
+  }
 
   const hero = createHero(heroName);
   hero.position.x = heroPos.x;
   hero.position.y = heroPos.y;
 
-  // Place monsters - scale count to dungeon size
-  const monsters: Monster[] = [];
-  const areaRatio = (DUNGEON_WIDTH * DUNGEON_HEIGHT) / (78 * 20);
-  const baseCount = 3 + Math.floor(Math.random() * 3);
-  const monsterCount = Math.floor(baseCount * areaRatio);
-
-  for (let i = 0; i < monsterCount; i++) {
-    const pos = findEmptySpot(dungeon, occupied, DUNGEON_WIDTH, DUNGEON_HEIGHT);
-    occupied.push(pos);
-
-    const monsterKey = pickWeightedMonster();
-    const def = MONSTER_DEFINITIONS[monsterKey];
-
-    monsters.push({
-      pos,
-      char: def.asciiChar,
-      color: MONSTER_COLORS[def.type] || COLORS.TEXT_NORMAL,
-      name: def.name,
-      health: def.baseHealth,
-      maxHealth: def.baseHealth,
-      attack: def.baseAttack,
-      defense: def.baseDefense
-    });
-  }
-
-  // Place teeth items - scale to dungeon size
-  const items: (Entity & { type: 'teeth'; value: number })[] = [];
-  const baseItemCount = 4 + Math.floor(Math.random() * 4);
-  const itemCount = Math.floor(baseItemCount * areaRatio);
-
-  for (let i = 0; i < itemCount; i++) {
-    const pos = findEmptySpot(dungeon, occupied, DUNGEON_WIDTH, DUNGEON_HEIGHT);
-    occupied.push(pos);
-
-    items.push({
-      pos,
-      char: '%',
-      color: COLORS.TEXT_BRIGHT,
-      name: 'Teeth',
-      type: 'teeth',
-      value: 1 + Math.floor(Math.random() * 10)
-    });
-  }
-
   // Calculate initial camera position
-  const cameraX = clamp(heroPos.x - Math.floor(VIEWPORT_COLS / 2), 0, DUNGEON_WIDTH - VIEWPORT_COLS);
-  const cameraY = clamp(heroPos.y - Math.floor(VIEWPORT_ROWS / 2), 0, DUNGEON_HEIGHT - VIEWPORT_ROWS);
+  const cameraX = clamp(heroPos.x - Math.floor(VIEWPORT_COLS / 2), 0, level.width - VIEWPORT_COLS);
+  const cameraY = clamp(heroPos.y - Math.floor(VIEWPORT_ROWS / 2), 0, level.height - VIEWPORT_ROWS);
+
+  const welcomeMessage = depth === 0
+    ? 'Welcome to Town! Step on the dungeon entrance (>) to descend.'
+    : 'Welcome to the dungeon! Use WASD/Arrows/Numpad to move.';
 
   return {
     hero,
     heroPos,
     monsters,
     items,
-    dungeon,
-    dungeonWidth: DUNGEON_WIDTH,
-    dungeonHeight: DUNGEON_HEIGHT,
+    dungeon: level.grid,
+    dungeonWidth: level.width,
+    dungeonHeight: level.height,
     cameraX,
     cameraY,
-    messages: ['Welcome to the dungeon! Use WASD/Arrows/Numpad to move.', 'Bump into monsters to attack them!'],
+    messages: [welcomeMessage, 'Bump into monsters to attack them!'],
     gameOver: false,
-    victory: false
+    victory: false,
+    currentDepth: depth,
+    stairUpPos: level.stairUpPos,
+    stairDownPos: level.stairDownPos,
   };
 }
 
@@ -167,7 +244,32 @@ function clamp(value: number, min: number, max: number): number {
 // GAME LOGIC
 // =============================================================================
 
-function tryMove(state: GameState, dx: number, dy: number): void {
+function persistLevel(state: GameState, worldState: WorldState): void {
+  const levelRecord = gameStateToLevelRecord(state);
+  worldState.saveLevel(levelRecord).catch(console.error);
+}
+
+async function transitionToLevel(
+  state: GameState,
+  newDepth: number,
+  arrivalStairType: 'up' | 'down',
+  worldState: WorldState
+): Promise<GameState> {
+  // Save current level state before transitioning
+  persistLevel(state, worldState);
+
+  // Load or generate the new level
+  const newState = await initGame(state.hero.name, worldState, newDepth, arrivalStairType);
+
+  // Carry over the hero's stats and inventory from the old state
+  newState.hero = state.hero;
+  newState.hero.position.x = newState.heroPos.x;
+  newState.hero.position.y = newState.heroPos.y;
+
+  return newState;
+}
+
+async function tryMove(state: GameState, dx: number, dy: number, worldState: WorldState, onLevelTransition: (newState: GameState) => void): Promise<void> {
   if (state.gameOver) return;
 
   const newX = state.heroPos.x + dx;
@@ -178,8 +280,10 @@ function tryMove(state: GameState, dx: number, dy: number): void {
     return;
   }
 
+  const targetTile = state.dungeon[newY][newX];
+
   // Wall collision
-  if (state.dungeon[newY][newX] === '#') {
+  if (targetTile === '#') {
     return;
   }
 
@@ -190,11 +294,97 @@ function tryMove(state: GameState, dx: number, dy: number): void {
     }
   }
 
+  // Staircase interaction (after moving onto the tile)
+  // First, check if we're already on a staircase and trying to use it
+  const currentTile = state.dungeon[state.heroPos.y][state.heroPos.x];
+  if (currentTile === '<' && dx === 0 && dy === 0) {
+    // Already on staircase up, no movement command - do nothing for now
+    // This handles the case where hero spawns on a staircase
+    return;
+  }
+  if (currentTile === '>' && dx === 0 && dy === 0) {
+    // Already on staircase down, no movement command - do nothing for now
+    return;
+  }
+
+  // Check if moving onto a staircase
+  if (targetTile === '<' || targetTile === '>') {
+    // Allow movement onto the staircase tile first
+    state.heroPos.x = newX;
+    state.heroPos.y = newY;
+    state.hero.position.x = newX;
+    state.hero.position.y = newY;
+
+    // Update camera
+    state.cameraX = clamp(newX - Math.floor(VIEWPORT_COLS / 2), 0, state.dungeonWidth - VIEWPORT_COLS);
+    state.cameraY = clamp(newY - Math.floor(VIEWPORT_ROWS / 2), 0, state.dungeonHeight - VIEWPORT_ROWS);
+
+    // Trigger level transition
+    if (targetTile === '<') {
+      // Staircase up
+      if (state.currentDepth > 0) {
+        state.messages.unshift('Ascending...');
+        const newState = await transitionToLevel(state, state.currentDepth - 1, 'up', worldState);
+        onLevelTransition(newState);
+      }
+    } else if (targetTile === '>') {
+      // Staircase down
+      state.messages.unshift('Descending...');
+      const newState = await transitionToLevel(state, state.currentDepth + 1, 'down', worldState);
+      onLevelTransition(newState);
+    }
+    return;
+  }
+
   // Monster collision = combat!
   const monster = state.monsters.find(m => m.pos.x === newX && m.pos.y === newY);
   if (monster) {
-    combat(state, monster);
+    const result = processCombat(state.hero, monster, state.monsters);
+    state.messages.unshift(...result.messages);
+
+    if (result.monsterKilled) {
+      // Persist level with updated monster list
+      persistLevel(state, worldState);
+
+      if (state.monsters.length === 0) {
+        state.victory = true;
+        state.gameOver = true;
+        state.messages.unshift('*** VICTORY! All monsters slain! Press R to restart. ***');
+      }
+    }
+    if (result.heroKilled) {
+      state.gameOver = true;
+      // Save world state on hero death
+      worldState.setCurrentHero(state.hero);
+      persistLevel(state, worldState);
+      worldState.saveWorld().catch(console.error);
+    }
     return;
+  }
+
+  // Flee-on-disengage: check if moving away from an adjacent monster
+  const adjacentMonster = getAdjacentMonster(state.heroPos.x, state.heroPos.y, state.monsters);
+  if (adjacentMonster) {
+    const newDx = Math.abs(adjacentMonster.pos.x - newX);
+    const newDy = Math.abs(adjacentMonster.pos.y - newY);
+    const movingAway = newDx > 1 || newDy > 1;
+
+    if (movingAway) {
+      const fleeResult = processFlee(state.hero, adjacentMonster);
+      state.messages.unshift(...fleeResult.messages);
+
+      if (!fleeResult.success) {
+        // Hero stays in place, already took free attack damage
+        if (!state.hero.isAlive) {
+          state.gameOver = true;
+          // Save world state on hero death
+          worldState.setCurrentHero(state.hero);
+          worldState.saveWorld().catch(console.error);
+        }
+        return;
+      }
+      // Flee success: fall through to normal movement
+    }
   }
 
   // Move hero
@@ -214,46 +404,15 @@ function tryMove(state: GameState, dx: number, dy: number): void {
     state.hero.teethCurrency += item.value;
     state.messages.unshift(`Picked up ${item.value} ${item.name}!`);
     state.items.splice(itemIndex, 1);
+
+    // Save hero and level state on teeth pickup
+    worldState.setCurrentHero(state.hero);
+    worldState.saveHero().catch(console.error);
+    persistLevel(state, worldState);
   }
 
   // Monsters move toward hero
   moveMonsters(state);
-}
-
-function combat(state: GameState, monster: Monster): void {
-  // Hero attacks monster
-  const heroAtk = getEffectiveAttack(state.hero);
-  const heroDamage = Math.max(1, heroAtk - monster.defense + Math.floor(Math.random() * 5));
-  monster.health -= heroDamage;
-  state.messages.unshift(`You hit ${monster.name} for ${heroDamage} damage!`);
-
-  if (monster.health <= 0) {
-    state.messages.unshift(`${monster.name} is slain!`);
-    const index = state.monsters.indexOf(monster);
-    state.monsters.splice(index, 1);
-
-    const teethDrop = 1 + Math.floor(Math.random() * 5);
-    state.hero.teethCurrency += teethDrop;
-    state.messages.unshift(`${monster.name} dropped ${teethDrop} teeth!`);
-
-    if (state.monsters.length === 0) {
-      state.victory = true;
-      state.gameOver = true;
-      state.messages.unshift('*** VICTORY! All monsters slain! Press R to restart. ***');
-    }
-    return;
-  }
-
-  // Monster retaliates
-  const heroDef = getEffectiveDefense(state.hero);
-  const monsterDamage = Math.max(1, monster.attack - heroDef + Math.floor(Math.random() * 3));
-  applyDamage(state.hero, monsterDamage);
-  state.messages.unshift(`${monster.name} hits you for ${monsterDamage} damage!`);
-
-  if (!state.hero.isAlive) {
-    state.gameOver = true;
-    state.messages.unshift('*** YOU DIED! Press R to restart. ***');
-  }
 }
 
 function moveMonsters(state: GameState): void {
@@ -295,8 +454,10 @@ function isInViewport(x: number, y: number, state: GameState): boolean {
          y >= state.cameraY && y < state.cameraY + VIEWPORT_ROWS;
 }
 
-function render(renderer: CanvasRenderer, hud: GameHUD, state: GameState): void {
+function render(renderer: CanvasRenderer, hud: GameHUD, state: GameState, inventoryPanel?: InventoryPanel): void {
   renderer.clear();
+
+  const mapOffsetY = LAYOUT.ROW_MAP_START + 1; // +1 for top border row of map box
 
   // Draw dungeon - only visible tiles within viewport
   for (let y = state.cameraY; y < state.cameraY + VIEWPORT_ROWS; y++) {
@@ -304,7 +465,7 @@ function render(renderer: CanvasRenderer, hud: GameHUD, state: GameState): void 
       if (y >= 0 && y < state.dungeonHeight && x >= 0 && x < state.dungeonWidth) {
         const tile = state.dungeon[y][x];
         const color = tile === '#' ? COLORS.TEXT_DIM : COLORS.TEXT_DIM;
-        renderer.drawChar(tile, x - state.cameraX + 1, y - state.cameraY + 1, color);
+        renderer.drawChar(tile, x - state.cameraX + 1, y - state.cameraY + mapOffsetY, color);
       }
     }
   }
@@ -312,31 +473,40 @@ function render(renderer: CanvasRenderer, hud: GameHUD, state: GameState): void 
   // Draw items (viewport-relative)
   for (const item of state.items) {
     if (isInViewport(item.pos.x, item.pos.y, state)) {
-      renderer.drawChar(item.char, item.pos.x - state.cameraX + 1, item.pos.y - state.cameraY + 1, item.color);
+      renderer.drawChar(item.char, item.pos.x - state.cameraX + 1, item.pos.y - state.cameraY + mapOffsetY, item.color);
     }
   }
 
   // Draw monsters (viewport-relative)
   for (const monster of state.monsters) {
     if (isInViewport(monster.pos.x, monster.pos.y, state)) {
-      renderer.drawChar(monster.char, monster.pos.x - state.cameraX + 1, monster.pos.y - state.cameraY + 1, monster.color);
+      renderer.drawChar(monster.char, monster.pos.x - state.cameraX + 1, monster.pos.y - state.cameraY + mapOffsetY, monster.color);
     }
   }
 
   // Draw hero (@) (viewport-relative)
-  renderer.drawChar('@', state.heroPos.x - state.cameraX + 1, state.heroPos.y - state.cameraY + 1, COLORS.TEXT_BRIGHT);
+  renderer.drawChar('@', state.heroPos.x - state.cameraX + 1, state.heroPos.y - state.cameraY + mapOffsetY, COLORS.TEXT_BRIGHT);
 
-  // Draw border (fixed)
-  renderer.drawBox(0, 0, 80, 22);
+  // Draw map border (rows 3-23: 21 rows high = top border + 20 map rows + bottom border, with side borders)
+  renderer.drawBox(0, LAYOUT.ROW_MAP_START, 80, LAYOUT.ROW_MAP_END - LAYOUT.ROW_MAP_START + 1);
 
-  // Draw status bar via GameHUD (fixed)
-  hud.renderStatusBar(state.hero, state.monsters.length, 22);
+  // Draw status bar at row 1
+  hud.renderStatusBar(state.hero, state.monsters.length, LAYOUT.ROW_STATUS_BAR);
 
-  // Draw message log (last 2 messages, fixed)
-  for (let i = 0; i < Math.min(2, state.messages.length); i++) {
+  // Draw adjacent monster info at row 2
+  const adjacent = getAdjacentMonster(state.heroPos.x, state.heroPos.y, state.monsters);
+  hud.renderAdjacentMonster(adjacent, LAYOUT.ROW_MONSTER_INFO);
+
+  // Draw action log (rows 24-29, newest at top)
+  for (let i = 0; i < Math.min(LAYOUT.ACTION_LOG_LINES, state.messages.length); i++) {
     const msg = state.messages[i];
     const color = i === 0 ? COLORS.TEXT_BRIGHT : COLORS.TEXT_DIM;
-    renderer.drawText(msg.substring(0, 78), 1, 23 - i, color);
+    renderer.drawText(msg.substring(0, 78), 1, LAYOUT.ROW_ACTION_LOG_START + i, color);
+  }
+
+  // Draw inventory overlay if open
+  if (inventoryPanel) {
+    inventoryPanel.render(state.hero);
   }
 }
 
@@ -344,20 +514,53 @@ function render(renderer: CanvasRenderer, hud: GameHUD, state: GameState): void 
 // MAIN GAME LOOP
 // =============================================================================
 
-function init(): void {
+async function init(): Promise<void> {
   console.log('Initializing Larn-Like Dungeon Crawler...');
 
   const renderer = new CanvasRenderer('game-canvas');
+
+  // Show loading indicator while IndexedDB initializes
+  renderer.clear();
+  const loadingText = 'Loading world state...';
+  const loadingX = Math.floor((80 - loadingText.length) / 2);
+  renderer.drawText(loadingText, loadingX, 14, COLORS.TEXT_DIM);
+
+  // Initialize world state persistence and measure load time
+  const loadStart = performance.now();
+  const worldState = new WorldState();
+  try {
+    await worldState.initializeWorld();
+  } catch (err) {
+    console.error('Failed to initialize world state:', err);
+    // Continue without persistence — game still playable
+  }
+  const loadMs = performance.now() - loadStart;
+  if (loadMs > 500) {
+    console.warn(`World state load took ${loadMs.toFixed(0)}ms (target: <500ms)`);
+  } else {
+    console.log(`World state loaded in ${loadMs.toFixed(0)}ms`);
+  }
+
   const titleScreen = new TitleScreen(renderer);
   const namingScreen = new CharacterNamingScreen(renderer);
+  namingScreen.setWorldState(worldState); // Enable world reset
   const hud = new GameHUD(renderer);
+  const inventoryPanel = new InventoryPanel(renderer);
   let gameInputHandler: ((e: KeyboardEvent) => void) | null = null;
+
+  // Sync credits: WorldState is source of truth, TitleScreen is the UI
+  titleScreen.setCredits(worldState.getCredits());
+  titleScreen.setOnCreditsChanged((credits: number) => {
+    worldState.setCredits(credits);
+    worldState.saveCredits().catch(console.error);
+  });
 
   function showTitleScreen(): void {
     if (gameInputHandler) {
       document.removeEventListener('keydown', gameInputHandler);
       gameInputHandler = null;
     }
+    titleScreen.setCredits(worldState.getCredits());
     titleScreen.show(showNamingScreen);
   }
 
@@ -373,11 +576,54 @@ function init(): void {
     );
   }
 
-  function startGame(heroName: string): void {
-    const state = initGame(heroName);
-    render(renderer, hud, state);
+  async function startGame(heroName: string): Promise<void> {
+    // Start in town (depth 0)
+    let state = await initGame(heroName, worldState, 0);
+    inventoryPanel.close();
+
+    // Save level and hero to world state
+    const levelRecord = gameStateToLevelRecord(state);
+    worldState.setCurrentHero(state.hero);
+    worldState.saveLevel(levelRecord).catch(console.error);
+    worldState.saveHero().catch(console.error);
+
+    render(renderer, hud, state, inventoryPanel);
 
     gameInputHandler = (e: KeyboardEvent) => {
+      // Inventory toggle keys
+      if (e.key === 'i' || e.key === 'I' || e.key === 'Tab') {
+        e.preventDefault();
+        inventoryPanel.toggle();
+        render(renderer, hud, state, inventoryPanel);
+        return;
+      }
+
+      // While inventory is open, handle consumption and close
+      if (inventoryPanel.isOpen) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          inventoryPanel.close();
+          render(renderer, hud, state, inventoryPanel);
+          return;
+        }
+
+        // Number keys 1-9 consume reagent
+        const num = parseInt(e.key, 10);
+        if (num >= 1 && num <= 9) {
+          e.preventDefault();
+          const grouped = groupReagents(getReagents(state.hero));
+          if (num <= grouped.length) {
+            const result = consumeReagent(state.hero, grouped[num - 1].reagent.monsterType);
+            if (result) {
+              state.messages.unshift(result.message);
+            }
+          }
+          render(renderer, hud, state, inventoryPanel);
+          return;
+        }
+        return;
+      }
+
       let dx = 0;
       let dy = 0;
 
@@ -423,10 +669,17 @@ function init(): void {
       e.preventDefault();
 
       if (dx !== 0 || dy !== 0) {
-        tryMove(state, dx, dy);
+        // Handle async tryMove with level transition callback
+        tryMove(state, dx, dy, worldState, (newState) => {
+          state = newState;
+          render(renderer, hud, state, inventoryPanel);
+        }).then(() => {
+          render(renderer, hud, state, inventoryPanel);
+        });
+        return;
       }
 
-      render(renderer, hud, state);
+      render(renderer, hud, state, inventoryPanel);
     };
 
     document.addEventListener('keydown', gameInputHandler);
@@ -437,4 +690,4 @@ function init(): void {
 }
 
 // Start the game
-init();
+init().catch(console.error);
