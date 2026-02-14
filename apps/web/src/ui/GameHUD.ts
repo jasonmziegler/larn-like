@@ -12,28 +12,50 @@ export class GameHUD {
     this.renderer = renderer;
   }
 
-  public renderStatusBar(hero: Hero, monstersLeft: number, row: number): void {
+  public renderStatusBar(hero: Hero, monstersLeft: number, currentDepth: number, row: number): void {
     const healthColor = hero.currentStats.hp < 10 ? COLORS.HEALTH_CRITICAL : COLORS.TEXT_NORMAL;
     const hpText = `HP:${hero.currentStats.hp}/${hero.currentStats.maxHp}`;
     const atkText = `ATK:${getEffectiveAttack(hero)}`;
     const defText = `DEF:${getEffectiveDefense(hero)}`;
     const teethText = `Teeth:${hero.teethCurrency}`;
+    const depthText = currentDepth === 0 ? 'Town' : `Lvl:${currentDepth}`;
     const monsterText = `Mon:${monstersLeft}`;
 
     this.renderer.drawText(hpText, 2, row, healthColor);
     this.renderer.drawText(atkText, 16, row, COLORS.TEXT_NORMAL);
     this.renderer.drawText(defText, 24, row, COLORS.TEXT_NORMAL);
     this.renderer.drawText(teethText, 32, row, COLORS.GOLD_COLOR);
-    this.renderer.drawText(monsterText, 44, row, COLORS.TEXT_NORMAL);
-    this.renderer.drawText('[WASD/Numpad] [R]Title', 54, row, COLORS.TEXT_DIM);
+    this.renderer.drawText(depthText, 44, row, COLORS.TEXT_BRIGHT);
+    this.renderer.drawText(monsterText, 54, row, COLORS.TEXT_NORMAL);
+    this.renderer.drawText('[WASD] [R]Title', 64, row, COLORS.TEXT_DIM);
   }
 
   public renderAdjacentMonster(monster: Monster | null, row: number): void {
     if (!monster) return;
 
-    const hpColor = getMonsterHpColor(monster);
-    const hpText = `${monster.char} ${monster.name} HP:${monster.health}/${monster.maxHealth}`;
-    this.renderer.drawText(hpText, 2, row, hpColor);
+    // Determine color based on evolution level
+    let displayColor: string;
+    if (monster.isEvolved && monster.evolutionLevel && monster.evolutionLevel > 0) {
+      if (monster.evolutionLevel === 1) displayColor = '#FFFF00'; // yellow - Veteran
+      else if (monster.evolutionLevel === 2) displayColor = '#FF8800'; // orange - Elite
+      else displayColor = '#FF0000'; // red - Legendary (3+)
+    } else {
+      displayColor = getMonsterHpColor(monster);
+    }
+
+    // Build text based on evolution status
+    if (monster.isEvolved && monster.evolutionLevel && monster.evolutionLevel > 0) {
+      const killCount = monster.killHistory?.length || 0;
+      const title = killCount > 0 ? ` - Slayer of ${killCount} ${killCount === 1 ? 'Hero' : 'Heroes'}` : '';
+      const evoTag = ` [Evo x${monster.evolutionLevel}]`;
+      const stats = ` HP:${monster.health}/${monster.maxHealth} ATK:${monster.attack} DEF:${monster.defense}`;
+      const text = `${monster.char} ${monster.name}${title}${evoTag}${stats}`;
+      this.renderer.drawText(text, 2, row, displayColor);
+    } else {
+      // Baseline monster - compact format
+      const hpText = `${monster.char} ${monster.name} HP:${monster.health}/${monster.maxHealth}`;
+      this.renderer.drawText(hpText, 2, row, displayColor);
+    }
   }
 
   public renderStatsPanel(hero: Hero, col: number, startRow: number): void {

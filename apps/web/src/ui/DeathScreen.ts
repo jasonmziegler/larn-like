@@ -74,6 +74,20 @@ export class DeathScreen {
       }
 
       row += 2;
+
+      // Soul shrine creation message
+      if (deathResult.soulShrineCreated) {
+        const shrineMsg = `${heroName}'s soul lingers at the death site...`;
+        this.renderer.drawText(shrineMsg, centerX - Math.floor(shrineMsg.length / 2), row, '#CC66FF');
+        row += 1;
+
+        // Show soul energy value
+        const soulEnergyMsg = `Soul Energy: ${deathResult.soulEnergy}`;
+        this.renderer.drawText(soulEnergyMsg, centerX - Math.floor(soulEnergyMsg.length / 2), row, '#CC66FF');
+        row += 1;
+      }
+
+      row += 1;
     } else {
       // Fallback if no death result (shouldn't happen)
       const msg = `${heroName} has fallen.`;

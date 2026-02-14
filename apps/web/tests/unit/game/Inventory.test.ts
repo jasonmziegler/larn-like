@@ -13,6 +13,7 @@ function createMockRenderer(): CanvasRenderer {
     drawChar: vi.fn(),
     drawText: vi.fn(),
     drawBox: vi.fn(),
+    fillRect: vi.fn(),
     getCanvas: vi.fn(),
     getContext: vi.fn(),
     getColorManager: vi.fn(),

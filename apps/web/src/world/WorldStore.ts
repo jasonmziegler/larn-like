@@ -2,7 +2,7 @@
 // Raw IndexedDB API with Promise-wrapped transactions
 
 const DB_NAME = 'larn-like-db';
-const DB_VERSION = 1;
+const DB_VERSION = 4;
 
 export const STORE_NAMES = {
   WORLD_META: 'worldMeta',
@@ -34,13 +34,41 @@ function onUpgradeNeeded(db: IDBDatabase, oldVersion: number): void {
     deathStore.createIndex('levelDepth', 'location.depth');
 
     const shrineStore = db.createObjectStore(STORE_NAMES.SOUL_SHRINES, { keyPath: 'id' });
-    shrineStore.createIndex('levelDepth', 'level');
+    shrineStore.createIndex('levelDepth', 'levelDepth');
     shrineStore.createIndex('isActive', 'isActive');
 
     const teethStore = db.createObjectStore(STORE_NAMES.TEETH_DROPS, { keyPath: 'id' });
-    teethStore.createIndex('levelDepth', 'level');
+    teethStore.createIndex('levelDepth', 'levelDepth');
+    teethStore.createIndex('isCollected', 'isCollected');
+  } else if (oldVersion < 2) {
+    // Story 2.4: Upgrade existing version 1 databases - fix teeth drops schema
+    // Delete and recreate the teeth drops store with correct field mappings
+    db.deleteObjectStore(STORE_NAMES.TEETH_DROPS);
+    const teethStore = db.createObjectStore(STORE_NAMES.TEETH_DROPS, { keyPath: 'id' });
+    teethStore.createIndex('levelDepth', 'levelDepth');
+    teethStore.createIndex('isCollected', 'isCollected');
   }
-  // Future versions: if (oldVersion < 2) { ... }
+
+  if (oldVersion < 3) {
+    // Story 2.7: Fix soul shrines index to use correct field name
+    // Delete and recreate the soul shrines store with correct field mappings
+    if (db.objectStoreNames.contains(STORE_NAMES.SOUL_SHRINES)) {
+      db.deleteObjectStore(STORE_NAMES.SOUL_SHRINES);
+    }
+    const shrineStore = db.createObjectStore(STORE_NAMES.SOUL_SHRINES, { keyPath: 'id' });
+    shrineStore.createIndex('levelDepth', 'levelDepth');
+    shrineStore.createIndex('isActive', 'isActive');
+  }
+
+  if (oldVersion < 4) {
+    // Fix databases that have wrong keyPath on levelDepth index
+    if (db.objectStoreNames.contains(STORE_NAMES.SOUL_SHRINES)) {
+      db.deleteObjectStore(STORE_NAMES.SOUL_SHRINES);
+    }
+    const shrineStore = db.createObjectStore(STORE_NAMES.SOUL_SHRINES, { keyPath: 'id' });
+    shrineStore.createIndex('levelDepth', 'levelDepth');
+    shrineStore.createIndex('isActive', 'isActive');
+  }
 }
 
 export class WorldStore {
@@ -199,10 +227,46 @@ export class WorldStore {
     await this.put(STORE_NAMES.SOUL_SHRINES, shrine);
   }
 
+  async loadShrinesByLevel(depth: number): Promise<Record<string, unknown>[]> {
+    // Load all shrines at this level depth
+    const allShrines = await this.getByIndex<Record<string, unknown>>(
+      STORE_NAMES.SOUL_SHRINES,
+      'levelDepth',
+      depth
+    );
+    // Filter to only active shrines (not consumed)
+    return allShrines.filter((shrine) => shrine.isActive === true);
+  }
+
+  async consumeShrine(id: string): Promise<void> {
+    const shrine = await this.get<Record<string, unknown>>(STORE_NAMES.SOUL_SHRINES, id);
+    if (shrine) {
+      shrine.isActive = false;
+      await this.put(STORE_NAMES.SOUL_SHRINES, shrine);
+    } else {
+      console.warn(`SoulShrine not found for ID: ${id}`);
+    }
+  }
+
   // --- Teeth drop operations ---
 
   async saveTeethDrop(drop: Record<string, unknown>): Promise<void> {
     await this.put(STORE_NAMES.TEETH_DROPS, drop);
+  }
+
+  async loadTeethDropsByLevel(depth: number): Promise<Record<string, unknown>[]> {
+    return this.getByIndex<Record<string, unknown>>(STORE_NAMES.TEETH_DROPS, 'levelDepth', depth);
+  }
+
+  async markTeethCollected(id: string, heroId: string): Promise<void> {
+    const drop = await this.get<Record<string, unknown>>(STORE_NAMES.TEETH_DROPS, id);
+    if (drop) {
+      drop.isCollected = true;
+      drop.collectedBy = heroId;
+      await this.put(STORE_NAMES.TEETH_DROPS, drop);
+    } else {
+      console.warn(`TeethDrop not found for ID: ${id}`);
+    }
   }
 
   // --- Bulk operations ---

@@ -72,6 +72,7 @@ export interface DungeonChestRecord {
   id: string;
   pos: { x: number; y: number };
   items: EquipmentItem[];
+  teeth: number;
 }
 
 const CURRENT_VERSION = 1;
@@ -222,6 +223,27 @@ export class WorldState {
 
   getStore(): WorldStore {
     return this.store;
+  }
+
+  // --- World statistics for UI display ---
+
+  /** Get total number of heroes that have fallen in this world */
+  getHeroesFallen(): number {
+    return this.state.deathEvents.length;
+  }
+
+  /** Get total count of evolved monsters across all levels */
+  getEvolvedMonsterCount(): number {
+    let count = 0;
+    for (const level of this.state.levels) {
+      count += level.monsters.filter(m => m.isEvolved).length;
+    }
+    return count;
+  }
+
+  /** Check if this is a fresh world (no previous heroes) */
+  isFreshWorld(): boolean {
+    return this.state.deathEvents.length === 0;
   }
 
   // --- Quota management ---

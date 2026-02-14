@@ -16,6 +16,7 @@ export interface GameLevel {
   height: number;
   monsters: MonsterRecord[];
   items: { pos: Position; char: string; color: string; name: string; type: 'teeth'; value: number; _persistId?: string }[];
+  chests: import('../world/WorldState').DungeonChestRecord[];
   stairUpPos?: Position;
   stairDownPos?: Position;
   isNewlyGenerated?: boolean;
@@ -77,6 +78,7 @@ function generateTownLevel(): GameLevel {
     height: TOWN_HEIGHT,
     monsters: [], // No monsters in town
     items: [],
+    chests: [],
     stairDownPos: entrancePos, // Dungeon entrance is the "stair down"
   };
 }
@@ -111,6 +113,7 @@ function generateDungeonLevel(depth: number): GameLevel {
     height: DUNGEON_HEIGHT,
     monsters: [],
     items: [],
+    chests: [],
     stairUpPos,
     stairDownPos,
   };
@@ -161,6 +164,7 @@ function levelRecordToGameLevel(record: DungeonLevelRecord, depth: number): Game
     height,
     monsters: monstersWithEquipment,
     items,
+    chests: record.chests || [],
     stairUpPos,
     stairDownPos,
   };
@@ -183,7 +187,7 @@ function gameLevelToRecord(level: GameLevel): DungeonLevelRecord {
       type: 'teeth',
       value: item.value,
     })),
-    chests: [],
+    chests: level.chests || [],
     generatedAt: new Date().toISOString(),
   };
 }

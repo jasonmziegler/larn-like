@@ -1,5 +1,6 @@
 import { CanvasRenderer } from '../rendering/CanvasRenderer';
 import { GAME_CONSTANTS } from '@larn-like/shared';
+import type { WorldState } from '../world/WorldState';
 
 const COLORS = GAME_CONSTANTS.COLORS;
 const STORAGE_KEY = 'larn-like-credits';
@@ -35,10 +36,15 @@ export class TitleScreen {
   private animationFrameId: number = 0;
   private inputHandler: ((e: KeyboardEvent) => void) | null = null;
   private active: boolean = false;
+  private worldState: WorldState | null = null;
 
   constructor(renderer: CanvasRenderer) {
     this.renderer = renderer;
     this.credits = this.loadCredits();
+  }
+
+  public setWorldState(worldState: WorldState): void {
+    this.worldState = worldState;
   }
 
   public show(onGameStart: TitleScreenCallback): void {
@@ -216,6 +222,9 @@ export class TitleScreen {
     // Draw credit counter
     this.renderCredits();
 
+    // Draw world summary
+    this.renderWorldSummary();
+
     // Draw instructions
     this.renderInstructions();
   }
@@ -255,6 +264,17 @@ export class TitleScreen {
     }
 
     this.renderer.drawText(text, x, row, color);
+  }
+
+  private renderWorldSummary(): void {
+    if (!this.worldState) return;
+
+    const heroesFallen = this.worldState.getHeroesFallen();
+    const monstersEvolved = this.worldState.getEvolvedMonsterCount();
+    const text = `World: ${heroesFallen} heroes fallen, ${monstersEvolved} monsters evolved`;
+
+    const x = Math.floor((VIEWPORT_WIDTH - text.length) / 2);
+    this.renderer.drawText(text, x, 20, COLORS.TEXT_DIM);
   }
 
   private renderInstructions(): void {

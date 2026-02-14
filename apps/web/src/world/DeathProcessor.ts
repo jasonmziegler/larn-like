@@ -3,7 +3,10 @@
 import type { Hero, EquipmentItem } from '@larn-like/shared';
 import type { Monster } from '../game/Combat';
 import type { WorldState, DeathEventRecord, MonsterRecord, DungeonChestRecord } from './WorldState';
-import { createEmptySlots, getEquippedItems } from '../game/Equipment';
+import { createEmptySlots, getEquippedItems, validateEquipmentChange } from '../game/Equipment';
+import { createTeethDrop } from './TeethDrop';
+import { createSoulShrine } from './SoulShrine';
+import { findEmptySpot } from '../game/DungeonGenerator';
 
 export interface EquipmentTransferResult {
   transferred: EquipmentItem[];
@@ -13,6 +16,9 @@ export interface EquipmentTransferResult {
 export interface DeathProcessingResult {
   deathEvent: DeathEventRecord;
   promotedMonster: MonsterRecord | null;
+  soulShrineCreated: boolean;
+  soulShrineId: string | null;
+  soulEnergy: number;
   summary: {
     killerName: string;
     oldLevel: number;
@@ -27,8 +33,64 @@ export interface DeathProcessingResult {
 }
 
 /**
+ * Spawn multiple chests to hold death overflow items and teeth.
+ * Creates 1-4 chests based on item count and teeth amount.
+ *
+ * @param items - Equipment items to distribute across chests
+ * @param teeth - Total teeth to distribute across chests
+ * @param dungeonGrid - The dungeon grid for valid placement
+ * @param occupiedPositions - Positions already occupied
+ * @param gridWidth - Dungeon width
+ * @param gridHeight - Dungeon height
+ * @returns Array of chest records
+ */
+function spawnDeathChests(
+  items: EquipmentItem[],
+  teeth: number,
+  dungeonGrid: number[][],
+  occupiedPositions: { x: number; y: number }[],
+  gridWidth: number,
+  gridHeight: number
+): DungeonChestRecord[] {
+  // Calculate number of chests: 1 + floor(items/3) + (teeth>0 ? 1 : 0), capped at 4
+  const baseChests = 1;
+  const itemChests = Math.floor(items.length / 3);
+  const teethChest = teeth > 0 ? 1 : 0;
+  const chestCount = Math.min(4, baseChests + itemChests + teethChest);
+
+  const chests: DungeonChestRecord[] = [];
+  const updatedOccupied = [...occupiedPositions];
+
+  // Distribute items round-robin across chests
+  const itemsPerChest: EquipmentItem[][] = Array.from({ length: chestCount }, () => []);
+  items.forEach((item, index) => {
+    itemsPerChest[index % chestCount].push(item);
+  });
+
+  // Distribute teeth evenly across chests
+  const teethPerChest = Math.floor(teeth / chestCount);
+  const remainderTeeth = teeth % chestCount;
+
+  for (let i = 0; i < chestCount; i++) {
+    const chestPos = findEmptySpot(dungeonGrid, updatedOccupied, gridWidth, gridHeight);
+    updatedOccupied.push(chestPos);
+
+    const chestTeeth = teethPerChest + (i < remainderTeeth ? 1 : 0);
+
+    chests.push({
+      id: `chest_death_${Date.now()}_${i}_${Math.random().toString(36).substring(2, 9)}`,
+      pos: chestPos,
+      items: itemsPerChest[i],
+      teeth: chestTeeth,
+    });
+  }
+
+  return chests;
+}
+
+/**
  * Transfer equipment from dead hero to killer monster.
- * Items that don't fit (occupied slots) become overflow.
+ * Monster claims ONE random item as a trophy; remaining items become overflow.
  *
  * @param hero - The deceased hero
  * @param killerMonster - The monster that killed the hero
@@ -44,24 +106,35 @@ export function transferEquipment(hero: Hero, killerMonster: Monster): Equipment
   }
 
   const heroItems = getEquippedItems(hero.equipment);
-  const transferred: EquipmentItem[] = [];
-  const overflow: EquipmentItem[] = [];
 
-  for (const item of heroItems) {
-    const slotKey = item.slot as keyof typeof killerMonster.equipment;
-
-    // Check if monster's slot is empty
-    if (killerMonster.equipment[slotKey] === null) {
-      // Transfer item to monster
-      killerMonster.equipment[slotKey] = item;
-      transferred.push(item);
-    } else {
-      // Slot occupied - item becomes overflow
-      overflow.push(item);
-    }
+  // No items to transfer
+  if (heroItems.length === 0) {
+    return { transferred: [], overflow: [] };
   }
 
-  return { transferred, overflow };
+  // Pick ONE random item as trophy
+  const randomIndex = Math.floor(Math.random() * heroItems.length);
+  const selectedItem = heroItems[randomIndex];
+  const otherItems = heroItems.filter((_, i) => i !== randomIndex);
+
+  // Try to equip the single selected item
+  const slotKey = selectedItem.slot as keyof typeof killerMonster.equipment;
+
+  // Validate equipment constraints (e.g., two-handed weapons)
+  const validation = validateEquipmentChange(killerMonster.equipment, selectedItem, slotKey);
+  if (!validation.valid) {
+    // Constraint violation - all items go to overflow
+    return { transferred: [], overflow: heroItems };
+  }
+
+  if (killerMonster.equipment[slotKey] === null) {
+    // Monster equips the trophy
+    killerMonster.equipment[slotKey] = selectedItem;
+    return { transferred: [selectedItem], overflow: otherItems };
+  } else {
+    // Monster's slot is occupied - all items go to overflow
+    return { transferred: [], overflow: heroItems };
+  }
 }
 
 /**
@@ -77,24 +150,34 @@ export async function processHeroDeath(
   worldState: WorldState,
   currentDepth: number
 ): Promise<DeathProcessingResult> {
-  // Generate random teeth drop (1-32)
-  const teethDropped = Math.floor(Math.random() * 32) + 1;
+  // Generate random teeth drop (16-32)
+  // Range represents teeth that survive the death event (some destroyed)
+  const teethDropped = Math.floor(Math.random() * 17) + 16;
 
   // Transfer hero equipment to killer monster
   const equipmentTransfer = transferEquipment(hero, killerMonster);
 
-  // Handle equipment overflow - create chest if needed
+  // Handle equipment overflow - create multiple chests if needed
   if (equipmentTransfer.overflow.length > 0) {
-    const chest: DungeonChestRecord = {
-      id: `chest_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-      pos: { x: hero.position.x, y: hero.position.y },
-      items: equipmentTransfer.overflow,
-    };
-
-    // Add chest to current level
     const currentLevel = worldState.getLevel(currentDepth);
     if (currentLevel) {
-      const updatedChests = [...(currentLevel.chests || []), chest];
+      const occupiedPositions = [
+        ...currentLevel.monsters.map(m => m.pos),
+        ...(currentLevel.chests || []).map(c => c.pos),
+        { x: hero.position.x, y: hero.position.y },
+      ];
+
+      // Spawn 1-4 chests to hold overflow equipment (no teeth - teeth handled separately below)
+      const deathChests = spawnDeathChests(
+        equipmentTransfer.overflow,
+        0, // No teeth in equipment chests
+        currentLevel.dungeon,
+        occupiedPositions,
+        currentLevel.dungeon[0].length,
+        currentLevel.dungeon.length
+      );
+
+      const updatedChests = [...(currentLevel.chests || []), ...deathChests];
       const updatedLevel = {
         ...currentLevel,
         chests: updatedChests,
@@ -135,6 +218,112 @@ export async function processHeroDeath(
 
   // Persist death event
   await worldState.saveDeathEvent(deathEvent);
+
+  // Create and persist TeethDrop at death location
+  const teethDrop = createTeethDrop(deathEvent);
+  await worldState.getStore().saveTeethDrop(teethDrop as unknown as Record<string, unknown>);
+
+  // Create and persist SoulShrine at death location
+  const soulShrine = createSoulShrine(
+    hero,
+    { x: hero.position.x, y: hero.position.y },
+    currentDepth
+  );
+  await worldState.getStore().saveSoulShrine(soulShrine as unknown as Record<string, unknown>);
+
+  // Update death event to mark shrine creation
+  deathEvent.soulShrineCreated = true;
+
+  // Scatter hero's teeth inventory to chests (25% current floor, 75% next floor)
+  const teethToScatter = hero.teethCurrency;
+  if (teethToScatter > 0) {
+    const currentFloorTeeth = Math.floor(teethToScatter * 0.25);
+    const nextFloorTeeth = teethToScatter - currentFloorTeeth;
+
+    // Get or create levels for chest placement
+    const currentLevel = worldState.getLevel(currentDepth);
+    const nextLevel = worldState.getLevel(currentDepth + 1);
+
+    // Scatter teeth on current floor
+    if (currentFloorTeeth > 0 && currentLevel) {
+      const occupiedPositions = [
+        ...currentLevel.monsters.map(m => m.pos),
+        ...(currentLevel.chests || []).map(c => c.pos),
+        { x: hero.position.x, y: hero.position.y },
+      ];
+
+      const chestPos = findEmptySpot(
+        currentLevel.dungeon,
+        occupiedPositions,
+        currentLevel.dungeon[0].length,
+        currentLevel.dungeon.length
+      );
+
+      const teethChest: DungeonChestRecord = {
+        id: `chest_teeth_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+        pos: chestPos,
+        items: [],
+        teeth: currentFloorTeeth,
+      };
+
+      const updatedChests = [...(currentLevel.chests || []), teethChest];
+      await worldState.saveLevel({ ...currentLevel, chests: updatedChests });
+    }
+
+    // Scatter teeth on next floor (if it exists)
+    if (nextFloorTeeth > 0 && nextLevel) {
+      const occupiedPositions = [
+        ...nextLevel.monsters.map(m => m.pos),
+        ...(nextLevel.chests || []).map(c => c.pos),
+      ];
+
+      const chestPos = findEmptySpot(
+        nextLevel.dungeon,
+        occupiedPositions,
+        nextLevel.dungeon[0].length,
+        nextLevel.dungeon.length
+      );
+
+      const teethChest: DungeonChestRecord = {
+        id: `chest_teeth_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+        pos: chestPos,
+        items: [],
+        teeth: nextFloorTeeth,
+      };
+
+      const updatedChests = [...(nextLevel.chests || []), teethChest];
+      await worldState.saveLevel({ ...nextLevel, chests: updatedChests });
+    } else if (nextFloorTeeth > 0 && !nextLevel) {
+      // Next floor doesn't exist yet - add remaining teeth to current floor
+      if (currentLevel) {
+        const occupiedPositions = [
+          ...currentLevel.monsters.map(m => m.pos),
+          ...(currentLevel.chests || []).map(c => c.pos),
+          { x: hero.position.x, y: hero.position.y },
+        ];
+
+        const chestPos = findEmptySpot(
+          currentLevel.dungeon,
+          occupiedPositions,
+          currentLevel.dungeon[0].length,
+          currentLevel.dungeon.length
+        );
+
+        const teethChest: DungeonChestRecord = {
+          id: `chest_teeth_fallback_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+          pos: chestPos,
+          items: [],
+          teeth: nextFloorTeeth,
+        };
+
+        const updatedLevel = worldState.getLevel(currentDepth);
+        if (updatedLevel) {
+          const updatedChests = [...(updatedLevel.chests || []), teethChest];
+          await worldState.saveLevel({ ...updatedLevel, chests: updatedChests });
+        }
+      }
+    }
+  }
 
   // Promote monster logic
   // Clone monster with evolved properties
@@ -195,6 +384,9 @@ export async function processHeroDeath(
   return {
     deathEvent,
     promotedMonster,
+    soulShrineCreated: true,
+    soulShrineId: soulShrine.id,
+    soulEnergy: soulShrine.soulEnergy,
     summary: {
       killerName: killerMonster.name,
       oldLevel: currentDepth,

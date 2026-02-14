@@ -12,6 +12,7 @@ function createMockRenderer(): CanvasRenderer {
     drawChar: vi.fn(),
     drawText: vi.fn(),
     drawBox: vi.fn(),
+    fillRect: vi.fn(),
     getCanvas: vi.fn(),
     getContext: vi.fn(),
     getColorManager: vi.fn(),
@@ -20,12 +21,12 @@ function createMockRenderer(): CanvasRenderer {
 
 describe('GameHUD', () => {
   describe('renderStatusBar', () => {
-    it('should render HP, ATK, DEF, Teeth, and Monsters', () => {
+    it('should render HP, ATK, DEF, Teeth, Level, and Monsters', () => {
       const renderer = createMockRenderer();
       const hud = new GameHUD(renderer);
       const hero = createHero('TestHero');
 
-      hud.renderStatusBar(hero, 3, LAYOUT.ROW_STATUS_BAR);
+      hud.renderStatusBar(hero, 3, 2, LAYOUT.ROW_STATUS_BAR);
 
       const calls = (renderer.drawText as ReturnType<typeof vi.fn>).mock.calls;
       const allText = calls.map((c: unknown[]) => c[0]).join(' ');
@@ -34,7 +35,21 @@ describe('GameHUD', () => {
       expect(allText).toContain('ATK:12');
       expect(allText).toContain('DEF:6');
       expect(allText).toContain('Teeth:0');
+      expect(allText).toContain('Lvl:2');
       expect(allText).toContain('Mon:3');
+    });
+
+    it('should display Town when depth is 0', () => {
+      const renderer = createMockRenderer();
+      const hud = new GameHUD(renderer);
+      const hero = createHero('TestHero');
+
+      hud.renderStatusBar(hero, 0, 0, LAYOUT.ROW_STATUS_BAR);
+
+      const calls = (renderer.drawText as ReturnType<typeof vi.fn>).mock.calls;
+      const allText = calls.map((c: unknown[]) => c[0]).join(' ');
+
+      expect(allText).toContain('Town');
     });
 
     it('should use critical color when HP is low', () => {
@@ -43,7 +58,7 @@ describe('GameHUD', () => {
       const hero = createHero('TestHero');
       hero.currentStats.hp = 5;
 
-      hud.renderStatusBar(hero, 0, LAYOUT.ROW_STATUS_BAR);
+      hud.renderStatusBar(hero, 0, 1, LAYOUT.ROW_STATUS_BAR);
 
       const calls = (renderer.drawText as ReturnType<typeof vi.fn>).mock.calls;
       // First call is HP text, should use HEALTH_CRITICAL color

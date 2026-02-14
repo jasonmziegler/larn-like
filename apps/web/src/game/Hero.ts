@@ -5,7 +5,7 @@ import {
   EquipmentItem,
   EquipmentSlotType,
 } from '@larn-like/shared';
-import { createStartingEquipment } from './Equipment';
+import { createStartingEquipment, getTotalAttackBonus, getTotalDefenseBonus } from './Equipment';
 
 const BASE_STATS: HeroStats = {
   hp: 30,
@@ -46,27 +46,21 @@ export function createHero(name: string, playerId: string = 'local'): Hero {
   };
 }
 
+/**
+ * Calculates the hero's effective attack stat.
+ * Combines base strength with total attack bonuses from all equipped items.
+ */
 export function getEffectiveAttack(hero: Hero): number {
-  let attack = hero.currentStats.strength;
-  if (hero.equipment.weapon) {
-    attack += hero.equipment.weapon.attackBonus;
-  }
+  const attack = hero.currentStats.strength + getTotalAttackBonus(hero.equipment);
   return attack;
 }
 
+/**
+ * Calculates the hero's effective defense stat.
+ * Combines dexterity-based defense with total defense bonuses from all equipped items.
+ */
 export function getEffectiveDefense(hero: Hero): number {
-  let defense = Math.floor(hero.currentStats.dexterity / 2);
-  const slots = hero.equipment;
-  const allSlots: (EquipmentItem | null)[] = [
-    slots.weapon, slots.offHand, slots.helmet, slots.bodyArmor,
-    slots.gloves, slots.boots, slots.ring1, slots.ring2,
-    slots.amulet, slots.belt,
-  ];
-  for (const item of allSlots) {
-    if (item) {
-      defense += item.defenseBonus;
-    }
-  }
+  const defense = Math.floor(hero.currentStats.dexterity / 2) + getTotalDefenseBonus(hero.equipment);
   return defense;
 }
 

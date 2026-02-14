@@ -66,6 +66,22 @@ export class CanvasRenderer {
     }
   }
 
+  public fillRect(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    color: string = GAME_CONSTANTS.COLORS.BACKGROUND
+  ): void {
+    const pixelX = x * this.charWidth;
+    const pixelY = y * this.charHeight;
+    const pixelWidth = width * this.charWidth;
+    const pixelHeight = height * this.charHeight;
+
+    this.ctx.fillStyle = color;
+    this.ctx.fillRect(pixelX, pixelY, pixelWidth, pixelHeight);
+  }
+
   public drawBox(
     x: number,
     y: number,

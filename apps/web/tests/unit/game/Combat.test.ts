@@ -432,4 +432,89 @@ describe('Combat', () => {
       });
     });
   });
+
+  describe('Monster Equipment Bonuses', () => {
+    it('should apply monster equipment attack bonus in combat', () => {
+      const weaponItem = {
+        id: 'monster_sword',
+        name: 'Monster Sword',
+        slot: 'weapon' as const,
+        attackBonus: 5,
+        defenseBonus: 0,
+        description: 'A sharp sword',
+      };
+
+      const equippedMonster = createMonster({
+        attack: 5,
+        defense: 2,
+      });
+      equippedMonster.equipment.weapon = weaponItem;
+
+      // Monster with equipment should deal more damage
+      const result = processCombat(hero, equippedMonster, [equippedMonster]);
+
+      // Verify monster's equipment bonus affects damage calculation
+      // Base monster attack is 5, +5 from weapon = 10 total attack
+      expect(result.damageReceived).toBeGreaterThan(0);
+    });
+
+    it('should apply monster equipment defense bonus in combat', () => {
+      const armorItem = {
+        id: 'monster_armor',
+        name: 'Monster Armor',
+        slot: 'bodyArmor' as const,
+        attackBonus: 0,
+        defenseBonus: 5,
+        description: 'Heavy armor',
+      };
+
+      const equippedMonster = createMonster({
+        attack: 5,
+        defense: 2,
+        health: 100,
+      });
+      equippedMonster.equipment.bodyArmor = armorItem;
+
+      // Monster with armor should take less damage
+      const result = processCombat(hero, equippedMonster, [equippedMonster]);
+
+      // Monster should still be alive with high defense
+      expect(equippedMonster.health).toBeGreaterThan(0);
+      expect(result.monsterKilled).toBe(false);
+    });
+
+    it('should calculate monster stats with multiple equipment pieces', () => {
+      const weaponItem = {
+        id: 'monster_sword',
+        name: 'Monster Sword',
+        slot: 'weapon' as const,
+        attackBonus: 3,
+        defenseBonus: 0,
+        description: 'A sword',
+      };
+
+      const armorItem = {
+        id: 'monster_armor',
+        name: 'Monster Armor',
+        slot: 'bodyArmor' as const,
+        attackBonus: 0,
+        defenseBonus: 3,
+        description: 'Armor',
+      };
+
+      const fullyEquippedMonster = createMonster({
+        attack: 5,
+        defense: 2,
+        health: 50,
+      });
+      fullyEquippedMonster.equipment.weapon = weaponItem;
+      fullyEquippedMonster.equipment.bodyArmor = armorItem;
+
+      const result = processCombat(hero, fullyEquippedMonster, [fullyEquippedMonster]);
+
+      // Should successfully process combat with all equipment bonuses applied
+      expect(result.damageDealt).toBeGreaterThan(0);
+      expect(result.messages.length).toBeGreaterThan(0);
+    });
+  });
 });

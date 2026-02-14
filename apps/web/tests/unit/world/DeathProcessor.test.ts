@@ -85,12 +85,12 @@ describe('DeathProcessor', () => {
     expect(result.deathEvent.location.x).toBe(10);
     expect(result.deathEvent.location.y).toBe(10);
     expect(result.deathEvent.location.depth).toBe(1);
-    expect(result.deathEvent.teethDropped).toBeGreaterThanOrEqual(1);
+    expect(result.deathEvent.teethDropped).toBeGreaterThanOrEqual(16);
     expect(result.deathEvent.teethDropped).toBeLessThanOrEqual(32);
     expect(result.deathEvent.processedAt).toBeDefined();
   });
 
-  it('should generate teeth drop between 1-32', async () => {
+  it('should generate teeth drop between 16-32', async () => {
     const teethDrops: number[] = [];
     // Run multiple times to check randomness
     for (let i = 0; i < 20; i++) {
@@ -100,7 +100,7 @@ describe('DeathProcessor', () => {
 
     // Check all values are in valid range
     for (const teeth of teethDrops) {
-      expect(teeth).toBeGreaterThanOrEqual(1);
+      expect(teeth).toBeGreaterThanOrEqual(16);
       expect(teeth).toBeLessThanOrEqual(32);
     }
   });

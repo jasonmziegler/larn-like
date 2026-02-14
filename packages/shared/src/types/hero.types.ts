@@ -27,6 +27,7 @@ export interface EquipmentItem {
   attackBonus: number;
   defenseBonus: number;
   description: string;
+  isTwoHanded?: boolean;
 }
 
 export interface EquipmentSlots {
@@ -40,6 +41,15 @@ export interface EquipmentSlots {
   ring2: EquipmentItem | null;
   amulet: EquipmentItem | null;
   belt: EquipmentItem | null;
+}
+
+export interface EquipmentValidationResult {
+  valid: boolean;
+  error?: string;
+}
+
+export interface EquipmentSlotConstraints {
+  twoHandedWeaponBlocksOffHand: boolean;
 }
 
 export interface Position {

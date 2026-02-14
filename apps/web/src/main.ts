@@ -3,17 +3,22 @@ import { TitleScreen } from './ui/TitleScreen';
 import { CharacterNamingScreen } from './ui/CharacterNamingScreen';
 import { GameHUD } from './ui/GameHUD';
 import { InventoryPanel, groupReagents, getReagents } from './ui/InventoryPanel';
+import { MonsterInspectPanel } from './ui/MonsterInspectPanel';
+import { BlessingPanel } from './ui/BlessingPanel';
+import { EquipmentPanel } from './ui/EquipmentPanel';
 import { DeathScreen } from './ui/DeathScreen';
 import { GAME_CONSTANTS, LAYOUT, MONSTER_DEFINITIONS, Hero } from '@larn-like/shared';
 import { createHero } from './game/Hero';
 import { findEmptySpot, Position, DungeonGrid } from './game/DungeonGenerator';
 import { processCombat, processFlee, getAdjacentMonster, Monster } from './game/Combat';
 import { consumeReagent } from './game/Inventory';
-import { createEmptySlots } from './game/Equipment';
+import { createEmptySlots, equipItem, unequipItem, validateEquipmentChange } from './game/Equipment';
+import { attemptBlessing, type ShrineData } from './game/Blessing';
 import { WorldState, DungeonLevelRecord } from './world/WorldState';
 import { getOrGenerateLevel } from './game/LevelManager';
 import { getTownSpawnPosition } from './game/TownGenerator';
 import { processHeroDeath, DeathProcessingResult } from './world/DeathProcessor';
+import type { TeethDrop } from './world/TeethDrop';
 
 // =============================================================================
 // DUNGEON PROTOTYPE WITH HERO SYSTEM
@@ -27,11 +32,33 @@ interface Entity {
   name: string;
 }
 
+interface Chest {
+  pos: Position;
+  char: string;
+  color: string;
+  name: string;
+  items: Entity[];
+  teeth: number;
+  id: string;
+}
+
+interface Shrine {
+  pos: Position;
+  char: string;
+  color: string;
+  name: string;
+  heroName: string;
+  soulEnergy: number;
+  id: string;
+}
+
 interface GameState {
   hero: Hero;
   heroPos: Position;
   monsters: Monster[];
-  items: (Entity & { type: 'teeth'; value: number })[];
+  items: (Entity & { type: 'teeth'; value: number; teethDropId?: string })[];
+  chests: Chest[];
+  shrines: Shrine[];
   dungeon: DungeonGrid;
   dungeonWidth: number;
   dungeonHeight: number;
@@ -50,6 +77,24 @@ interface GameState {
 const VIEWPORT_COLS = 78;
 const VIEWPORT_ROWS = 20;
 const COLORS = GAME_CONSTANTS.COLORS;
+
+// =============================================================================
+// EVOLVED MONSTER COLORS
+// =============================================================================
+
+/**
+ * Returns the color for an evolved monster based on evolution level.
+ * Evolution 0: base color (baseline monster)
+ * Evolution 1: bright yellow (Veteran)
+ * Evolution 2: bright orange (Elite)
+ * Evolution 3+: bright red (Legendary)
+ */
+function getEvolvedColor(baseColor: string, evolutionLevel: number): string {
+  if (evolutionLevel <= 0) return baseColor;
+  if (evolutionLevel === 1) return '#FFFF00'; // yellow - Veteran
+  if (evolutionLevel === 2) return '#FF8800'; // orange - Elite
+  return '#FF0000'; // red - Legendary (3+)
+}
 
 // =============================================================================
 // GAME INITIALIZATION
@@ -126,7 +171,12 @@ function gameStateToLevelRecord(state: GameState): DungeonLevelRecord {
       type: 'teeth' as const,
       value: item.value,
     })),
-    chests: [],
+    chests: state.chests.map(chest => ({
+      id: chest.id,
+      pos: { x: chest.pos.x, y: chest.pos.y },
+      items: [], // Equipment items would go here
+      teeth: chest.teeth,
+    })),
     generatedAt: new Date().toISOString(),
   };
 }
@@ -191,12 +241,64 @@ async function initGame(heroName: string, worldState: WorldState, depth: number 
 
       monsters.push(newMonster);
     }
-
-    // TODO: Epic 2 - Replace with death event teeth generation (Story 2.4)
-    // For now, no placeholder teeth in fresh levels (simplified)
   }
 
-  const items = level.items;
+  // Load persisted teeth drops for this level
+  const teethDropRecords = await worldState.getStore().loadTeethDropsByLevel(depth);
+  const uncollectedTeeth = (teethDropRecords as unknown as TeethDrop[]).filter(td => !td.isCollected);
+
+  // Group teeth by position and merge multiple drops at same tile
+  const teethByPosition = new Map<string, { drops: TeethDrop[]; totalValue: number }>();
+  for (const drop of uncollectedTeeth) {
+    const key = `${drop.position.x},${drop.position.y}`;
+    const existing = teethByPosition.get(key);
+    if (existing) {
+      existing.drops.push(drop);
+      existing.totalValue += drop.value;
+    } else {
+      teethByPosition.set(key, { drops: [drop], totalValue: drop.value });
+    }
+  }
+
+  // Convert merged teeth to item entities
+  const teethItems = Array.from(teethByPosition.values()).map(({ drops, totalValue }) => {
+    const firstDrop = drops[0];
+    return {
+      pos: { x: firstDrop.position.x, y: firstDrop.position.y },
+      char: '%',
+      color: COLORS.TEXT_BRIGHT,
+      name: 'teeth',
+      type: 'teeth' as const,
+      value: totalValue,
+      teethDropId: drops.map(d => d.id).join(','), // Store all drop IDs for collection
+    };
+  });
+
+  // Merge persisted teeth with level items
+  const items = [...level.items, ...teethItems];
+
+  // Load chests from level
+  const chests: Chest[] = (level.chests || []).map(chestRecord => ({
+    pos: { x: chestRecord.pos.x, y: chestRecord.pos.y },
+    char: '=',
+    color: COLORS.TEXT_BRIGHT,
+    name: 'chest',
+    items: [], // Equipment items if any
+    teeth: chestRecord.teeth || 0,
+    id: chestRecord.id,
+  }));
+
+  // Load soul shrines for this level
+  const shrineRecords = await worldState.getStore().loadShrinesByLevel(depth);
+  const shrines: Shrine[] = shrineRecords.map((shrineRecord: Record<string, unknown>) => ({
+    pos: { x: (shrineRecord.position as { x: number; y: number }).x, y: (shrineRecord.position as { x: number; y: number }).y },
+    char: '†',
+    color: '#CC66FF', // Purple/magenta
+    name: 'shrine',
+    heroName: shrineRecord.heroName as string,
+    soulEnergy: shrineRecord.soulEnergy as number,
+    id: shrineRecord.id as string,
+  }));
 
   // Determine hero spawn position
   let heroPos: Position;
@@ -215,6 +317,8 @@ async function initGame(heroName: string, worldState: WorldState, depth: number 
     const occupiedForHero = [
       ...monsters.map(m => m.pos),
       ...items.map(i => i.pos),
+      ...chests.map(c => c.pos),
+      ...shrines.map(s => s.pos),
     ];
     if (level.stairUpPos) occupiedForHero.push(level.stairUpPos);
     if (level.stairDownPos) occupiedForHero.push(level.stairDownPos);
@@ -233,17 +337,40 @@ async function initGame(heroName: string, worldState: WorldState, depth: number 
     ? 'Welcome to Town! Step on the dungeon entrance (>) to descend.'
     : 'Welcome to the dungeon! Use WASD/Arrows/Numpad to move.';
 
+  // Build messages array with level entry indicators
+  const messages: string[] = [welcomeMessage, 'Bump into monsters to attack them!'];
+
+  // Add persistent world indicators (only in dungeon levels, not town)
+  if (depth > 0) {
+    const hasEvolvedMonsters = monsters.some(m => m.isEvolved);
+    const hasTeeth = uncollectedTeeth.length > 0;
+    const isFreshWorld = worldState.isFreshWorld();
+
+    if (isFreshWorld) {
+      messages.push('The dungeon is untouched. You are the first to enter.');
+    } else {
+      if (hasEvolvedMonsters) {
+        messages.push('You sense powerful creatures on this level...');
+      }
+      if (hasTeeth) {
+        messages.push('Scattered remains of past heroes litter the floor.');
+      }
+    }
+  }
+
   return {
     hero,
     heroPos,
     monsters,
     items,
+    chests,
+    shrines,
     dungeon: level.grid,
     dungeonWidth: level.width,
     dungeonHeight: level.height,
     cameraX,
     cameraY,
-    messages: [welcomeMessage, 'Bump into monsters to attack them!'],
+    messages,
     gameOver: false,
     victory: false,
     currentDepth: depth,
@@ -361,12 +488,6 @@ async function tryMove(state: GameState, dx: number, dy: number, worldState: Wor
     if (result.monsterKilled) {
       // Persist level with updated monster list
       await persistLevel(state, worldState);
-
-      if (state.monsters.length === 0) {
-        state.victory = true;
-        state.gameOver = true;
-        state.messages.unshift('*** VICTORY! All monsters slain! Press R to restart. ***');
-      }
     }
     if (result.heroKilled && result.killerMonster) {
       state.gameOver = true;
@@ -382,6 +503,20 @@ async function tryMove(state: GameState, dx: number, dy: number, worldState: Wor
       const killerIndex = state.monsters.indexOf(result.killerMonster);
       if (killerIndex !== -1) {
         state.monsters.splice(killerIndex, 1);
+      }
+      // Reload chests from WorldState — processHeroDeath added chests directly
+      // to the persisted level; state.chests must reflect that before persistLevel
+      const deathLevel = worldState.getLevel(state.currentDepth);
+      if (deathLevel?.chests) {
+        state.chests = deathLevel.chests.map(c => ({
+          pos: { x: c.pos.x, y: c.pos.y },
+          char: '=',
+          color: COLORS.TEXT_BRIGHT,
+          name: 'chest',
+          items: [],
+          teeth: c.teeth || 0,
+          id: c.id,
+        }));
       }
       // Save world state on hero death
       worldState.setCurrentHero(state.hero);
@@ -419,6 +554,20 @@ async function tryMove(state: GameState, dx: number, dy: number, worldState: Wor
           if (killerIndex !== -1) {
             state.monsters.splice(killerIndex, 1);
           }
+          // Reload chests from WorldState — processHeroDeath added chests directly
+          // to the persisted level; state.chests must reflect that before persistLevel
+          const fleeDeathLevel = worldState.getLevel(state.currentDepth);
+          if (fleeDeathLevel?.chests) {
+            state.chests = fleeDeathLevel.chests.map(c => ({
+              pos: { x: c.pos.x, y: c.pos.y },
+              char: '=',
+              color: COLORS.TEXT_BRIGHT,
+              name: 'chest',
+              items: [],
+              teeth: c.teeth || 0,
+              id: c.id,
+            }));
+          }
           // Save world state on hero death
           worldState.setCurrentHero(state.hero);
           await persistLevel(state, worldState);
@@ -445,12 +594,63 @@ async function tryMove(state: GameState, dx: number, dy: number, worldState: Wor
   if (itemIndex !== -1) {
     const item = state.items[itemIndex];
     state.hero.teethCurrency += item.value;
-    state.messages.unshift(`Picked up ${item.value} ${item.name}!`);
+
+    // Mark persisted teeth as collected
+    if (item.teethDropId) {
+      const dropIds = item.teethDropId.split(',');
+      try {
+        // Mark all teeth drops as collected before removing from state
+        for (const dropId of dropIds) {
+          await worldState.getStore().markTeethCollected(dropId.trim(), state.hero.id);
+        }
+      } catch (err) {
+        console.error('Failed to mark teeth as collected:', err);
+      }
+
+      // Enhanced message for death-event teeth
+      if (dropIds.length === 1) {
+        // Single drop - fetch the drop to get hero name
+        const teethDropRecords = await worldState.getStore().loadTeethDropsByLevel(state.currentDepth);
+        const drop = (teethDropRecords as unknown as TeethDrop[]).find(td => td.id === dropIds[0].trim());
+        if (drop) {
+          state.messages.unshift(`Found ${item.value} teeth at ${drop.heroName}'s death site!`);
+        } else {
+          state.messages.unshift(`Picked up ${item.value} ${item.name}!`);
+        }
+      } else {
+        // Multiple drops stacked
+        state.messages.unshift(`Found ${item.value} teeth from ${dropIds.length} death sites!`);
+      }
+    } else {
+      // Non-persisted teeth (placeholder or other items)
+      state.messages.unshift(`Picked up ${item.value} ${item.name}!`);
+    }
+
     state.items.splice(itemIndex, 1);
 
-    // Save hero and level state on teeth pickup
+    // Save hero and level state on teeth pickup - await both operations
     worldState.setCurrentHero(state.hero);
-    worldState.saveHero().catch(console.error);
+    await worldState.saveHero();
+    await persistLevel(state, worldState);
+  }
+
+  // Check for chests
+  const chestIndex = state.chests.findIndex(c => c.pos.x === newX && c.pos.y === newY);
+  if (chestIndex !== -1) {
+    const chest = state.chests[chestIndex];
+
+    // Collect teeth from chest
+    if (chest.teeth > 0) {
+      state.hero.teethCurrency += chest.teeth;
+      state.messages.unshift(`Found ${chest.teeth} teeth in a chest!`);
+    }
+
+    // Remove chest from game state
+    state.chests.splice(chestIndex, 1);
+
+    // Save hero and level state on chest pickup - await both operations
+    worldState.setCurrentHero(state.hero);
+    await worldState.saveHero();
     await persistLevel(state, worldState);
   }
 
@@ -497,7 +697,31 @@ function isInViewport(x: number, y: number, state: GameState): boolean {
          y >= state.cameraY && y < state.cameraY + VIEWPORT_ROWS;
 }
 
-function render(renderer: CanvasRenderer, hud: GameHUD, state: GameState, deathScreen: DeathScreen, inventoryPanel?: InventoryPanel): void {
+function getAdjacentShrine(
+  heroX: number,
+  heroY: number,
+  shrines: Shrine[]
+): Shrine | null {
+  let nearest: Shrine | null = null;
+  let nearestDist = Infinity;
+
+  for (const shrine of shrines) {
+    const dx = Math.abs(shrine.pos.x - heroX);
+    const dy = Math.abs(shrine.pos.y - heroY);
+    // Check if adjacent or on the shrine (shrines don't block movement)
+    if (dx <= 1 && dy <= 1) {
+      const dist = dx + dy;
+      if (dist < nearestDist) {
+        nearest = shrine;
+        nearestDist = dist;
+      }
+    }
+  }
+
+  return nearest;
+}
+
+function render(renderer: CanvasRenderer, hud: GameHUD, state: GameState, deathScreen: DeathScreen, inventoryPanel?: InventoryPanel, monsterInspectPanel?: MonsterInspectPanel, equipmentPanel?: EquipmentPanel, blessingPanel?: BlessingPanel | null): void {
   // Show death screen if game over and death result exists
   if (state.gameOver && !state.victory && state.deathResult) {
     deathScreen.render(state.hero.name, state.deathResult);
@@ -526,10 +750,27 @@ function render(renderer: CanvasRenderer, hud: GameHUD, state: GameState, deathS
     }
   }
 
+  // Draw chests (viewport-relative)
+  for (const chest of state.chests) {
+    if (isInViewport(chest.pos.x, chest.pos.y, state)) {
+      renderer.drawChar(chest.char, chest.pos.x - state.cameraX + 1, chest.pos.y - state.cameraY + mapOffsetY, chest.color);
+    }
+  }
+
+  // Draw soul shrines (viewport-relative)
+  for (const shrine of state.shrines) {
+    if (isInViewport(shrine.pos.x, shrine.pos.y, state)) {
+      renderer.drawChar(shrine.char, shrine.pos.x - state.cameraX + 1, shrine.pos.y - state.cameraY + mapOffsetY, shrine.color);
+    }
+  }
+
   // Draw monsters (viewport-relative)
   for (const monster of state.monsters) {
     if (isInViewport(monster.pos.x, monster.pos.y, state)) {
-      renderer.drawChar(monster.char, monster.pos.x - state.cameraX + 1, monster.pos.y - state.cameraY + mapOffsetY, monster.color);
+      const monsterColor = monster.isEvolved && monster.evolutionLevel
+        ? getEvolvedColor(monster.color, monster.evolutionLevel)
+        : monster.color;
+      renderer.drawChar(monster.char, monster.pos.x - state.cameraX + 1, monster.pos.y - state.cameraY + mapOffsetY, monsterColor);
     }
   }
 
@@ -540,11 +781,20 @@ function render(renderer: CanvasRenderer, hud: GameHUD, state: GameState, deathS
   renderer.drawBox(0, LAYOUT.ROW_MAP_START, 80, LAYOUT.ROW_MAP_END - LAYOUT.ROW_MAP_START + 1);
 
   // Draw status bar at row 1
-  hud.renderStatusBar(state.hero, state.monsters.length, LAYOUT.ROW_STATUS_BAR);
+  hud.renderStatusBar(state.hero, state.monsters.length, state.currentDepth, LAYOUT.ROW_STATUS_BAR);
 
-  // Draw adjacent monster info at row 2
+  // Draw adjacent monster info at row 2 (monster takes priority over shrine)
   const adjacent = getAdjacentMonster(state.heroPos.x, state.heroPos.y, state.monsters);
   hud.renderAdjacentMonster(adjacent, LAYOUT.ROW_MONSTER_INFO);
+
+  // If no adjacent monster, show adjacent shrine info
+  if (!adjacent) {
+    const adjacentShrine = getAdjacentShrine(state.heroPos.x, state.heroPos.y, state.shrines);
+    if (adjacentShrine) {
+      const shrineText = `† ${adjacentShrine.heroName}'s Shrine (Energy: ${adjacentShrine.soulEnergy}) - Press [b] to bless`;
+      renderer.drawText(shrineText.substring(0, 32), 1, LAYOUT.ROW_MONSTER_INFO, '#CC66FF');
+    }
+  }
 
   // Draw equipment info on right side of row 2
     const weapon = state.hero.equipment.weapon;
@@ -562,6 +812,21 @@ function render(renderer: CanvasRenderer, hud: GameHUD, state: GameState, deathS
   // Draw inventory overlay if open
   if (inventoryPanel) {
     inventoryPanel.render(state.hero);
+  }
+
+  // Draw monster inspection overlay if open
+  if (monsterInspectPanel) {
+    monsterInspectPanel.render();
+  }
+
+  // Draw equipment panel overlay if open
+  if (equipmentPanel) {
+    equipmentPanel.render(state.hero);
+  }
+
+  // Draw blessing panel overlay if open
+  if (blessingPanel) {
+    blessingPanel.render();
   }
 }
 
@@ -599,10 +864,15 @@ async function init(): Promise<void> {
   const titleScreen = new TitleScreen(renderer);
   const namingScreen = new CharacterNamingScreen(renderer);
   namingScreen.setWorldState(worldState); // Enable world reset
+  titleScreen.setWorldState(worldState); // Enable world summary display
   const hud = new GameHUD(renderer);
   const inventoryPanel = new InventoryPanel(renderer);
+  const monsterInspectPanel = new MonsterInspectPanel(renderer);
+  const equipmentPanel = new EquipmentPanel(renderer);
+  let blessingPanel: BlessingPanel | null = null;
   const deathScreen = new DeathScreen(renderer);
   let gameInputHandler: ((e: KeyboardEvent) => void) | null = null;
+  let autoSaveTimer: number | null = null;
 
   // Sync credits: WorldState is source of truth, TitleScreen is the UI
   titleScreen.setCredits(worldState.getCredits());
@@ -615,6 +885,10 @@ async function init(): Promise<void> {
     if (gameInputHandler) {
       document.removeEventListener('keydown', gameInputHandler);
       gameInputHandler = null;
+    }
+    if (autoSaveTimer !== null) {
+      clearInterval(autoSaveTimer);
+      autoSaveTimer = null;
     }
     titleScreen.setCredits(worldState.getCredits());
     titleScreen.show(showNamingScreen);
@@ -643,14 +917,156 @@ async function init(): Promise<void> {
     worldState.saveLevel(levelRecord).catch(console.error);
     worldState.saveHero().catch(console.error);
 
-    render(renderer, hud, state, deathScreen, inventoryPanel);
+    // Start periodic auto-save timer (every 60 seconds)
+    if (autoSaveTimer !== null) {
+      clearInterval(autoSaveTimer);
+    }
+    autoSaveTimer = window.setInterval(() => {
+      const currentLevelRecord = gameStateToLevelRecord(state);
+      worldState.saveLevel(currentLevelRecord).catch(console.error);
+      worldState.saveHero().catch(console.error);
+    }, 60000); // 60 seconds
+
+    render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
 
     gameInputHandler = (e: KeyboardEvent) => {
+      // Monster inspection toggle key (x)
+      if (e.key === 'x' || e.key === 'X') {
+        e.preventDefault();
+        if (monsterInspectPanel.isOpen) {
+          monsterInspectPanel.close();
+        } else {
+          const adjacent = getAdjacentMonster(state.heroPos.x, state.heroPos.y, state.monsters);
+          if (adjacent) {
+            monsterInspectPanel.open(adjacent);
+          } else {
+            state.messages.unshift('No monster nearby to examine.');
+          }
+        }
+        render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+        return;
+      }
+
+      // While monster inspect panel is open, handle navigation and close
+      if (monsterInspectPanel.isOpen) {
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          monsterInspectPanel.scrollHistoryUp();
+          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+          return;
+        }
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          monsterInspectPanel.scrollHistoryDown();
+          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          monsterInspectPanel.close();
+          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+          return;
+        }
+        // Any other key closes the panel
+        e.preventDefault();
+        monsterInspectPanel.close();
+        render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+        return;
+      }
+
+      // Blessing panel: press 'b' to bless equipment at adjacent shrine
+      if (e.key === 'b' || e.key === 'B') {
+        e.preventDefault();
+
+        // Check if already open
+        if (blessingPanel !== null) {
+          return; // Panel already open, ignore
+        }
+
+        // Find adjacent shrine
+        const adjacentShrine = getAdjacentShrine(state.hero.position.x, state.hero.position.y, state.shrines);
+
+        if (!adjacentShrine) {
+          state.messages.unshift('No shrine nearby.');
+          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+          return;
+        }
+
+        // Open blessing panel
+        const shrineData: ShrineData = {
+          id: adjacentShrine.id,
+          heroName: adjacentShrine.heroName,
+          soulEnergy: adjacentShrine.soulEnergy,
+        };
+        blessingPanel = new BlessingPanel(renderer, shrineData, state.hero.equipment);
+        render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+        return;
+      }
+
+      // While blessing panel is open, handle item selection
+      if (blessingPanel !== null) {
+        e.preventDefault();
+
+        const selectedItem = blessingPanel.handleInput(e.key);
+
+        // undefined means invalid input, keep panel open
+        if (selectedItem === (undefined as unknown as null)) {
+          return;
+        }
+
+        // null means close without blessing
+        if (selectedItem === null) {
+          blessingPanel = null;
+          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+          return;
+        }
+
+        // selectedItem is an EquipmentItem - attempt blessing
+        const shrineData = blessingPanel.getShrine();
+        const result = attemptBlessing(shrineData, selectedItem);
+
+        // Apply blessing result to hero equipment
+        for (const [slotName, item] of Object.entries(state.hero.equipment)) {
+          if (item && item.id === selectedItem.id) {
+            // Update the equipment slot with the blessed/degraded/destroyed item
+            (state.hero.equipment as Record<string, typeof result.item>)[slotName] = result.item;
+            break;
+          }
+        }
+
+        // Save updated hero equipment
+        worldState.saveHero().catch(console.error);
+
+        // Consume the shrine
+        worldState.getStore().consumeShrine(shrineData.id).catch(console.error);
+
+        // Remove shrine from game state
+        state.shrines = state.shrines.filter((s) => s.id !== shrineData.id);
+
+        // Show result message
+        state.messages.unshift(result.message);
+        state.messages.unshift(`† ${shrineData.heroName}'s shrine fades away...`);
+
+        // Close blessing panel
+        blessingPanel = null;
+
+        render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+        return;
+      }
+
       // Inventory toggle keys
       if (e.key === 'i' || e.key === 'I' || e.key === 'Tab') {
         e.preventDefault();
         inventoryPanel.toggle();
-        render(renderer, hud, state, deathScreen, inventoryPanel);
+        render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+        return;
+      }
+
+      // Equipment panel toggle key
+      if (e.key === 'e' || e.key === 'E') {
+        e.preventDefault();
+        equipmentPanel.toggle();
+        render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
         return;
       }
 
@@ -659,7 +1075,7 @@ async function init(): Promise<void> {
         if (e.key === 'Escape') {
           e.preventDefault();
           inventoryPanel.close();
-          render(renderer, hud, state, deathScreen, inventoryPanel);
+          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
           return;
         }
 
@@ -674,9 +1090,57 @@ async function init(): Promise<void> {
               state.messages.unshift(result.message);
             }
           }
-          render(renderer, hud, state, deathScreen, inventoryPanel);
+          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
           return;
         }
+        return;
+      }
+
+      // While equipment panel is open, handle close and slot management
+      if (equipmentPanel.isOpen) {
+        e.preventDefault();
+
+        // Handle input through panel
+        const action = equipmentPanel.handleInput(e.key, state.hero);
+
+        // Handle Escape - panel handles backing out of slot selection, main.ts handles closing
+        if (e.key === 'Escape' && action.type === 'none') {
+          equipmentPanel.close();
+          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+          return;
+        }
+
+        if (action.type === 'equip') {
+          // Validate first
+          const validation = validateEquipmentChange(state.hero.equipment, action.item, action.slotKey);
+          if (!validation.valid) {
+            state.messages.unshift(validation.error || 'Cannot equip item');
+          } else {
+            const result = equipItem(state.hero.inventory, state.hero.equipment, action.item, action.slotKey);
+            if (result.success) {
+              state.messages.unshift(`Equipped ${action.item.name}`);
+              // Save hero state
+              worldState.setCurrentHero(state.hero);
+              worldState.saveHero().catch(console.error);
+            } else {
+              state.messages.unshift(result.error || 'Failed to equip item');
+            }
+          }
+        } else if (action.type === 'unequip') {
+          const result = unequipItem(state.hero.inventory, state.hero.equipment, action.slotKey);
+          if (result.success && result.removedItem) {
+            state.messages.unshift(`Unequipped ${result.removedItem.name}`);
+            // Save hero state
+            worldState.setCurrentHero(state.hero);
+            worldState.saveHero().catch(console.error);
+          } else {
+            state.messages.unshift(result.error || 'Failed to unequip item');
+          }
+        } else if (action.type === 'error') {
+          state.messages.unshift(action.message);
+        }
+
+        render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
         return;
       }
 
@@ -728,14 +1192,14 @@ async function init(): Promise<void> {
         // Handle async tryMove with level transition callback
         tryMove(state, dx, dy, worldState, (newState) => {
           state = newState;
-          render(renderer, hud, state, deathScreen, inventoryPanel);
+          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
         }).then(() => {
-          render(renderer, hud, state, deathScreen, inventoryPanel);
+          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
         });
         return;
       }
 
-      render(renderer, hud, state, deathScreen, inventoryPanel);
+      render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
     };
 
     document.addEventListener('keydown', gameInputHandler);

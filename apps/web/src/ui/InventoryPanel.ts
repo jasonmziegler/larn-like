@@ -73,15 +73,11 @@ export class InventoryPanel {
     const startX = Math.floor((GAME_CONSTANTS.VIEWPORT_WIDTH - PANEL_WIDTH) / 2);
     const startY = Math.floor((GAME_CONSTANTS.VIEWPORT_HEIGHT - PANEL_HEIGHT) / 2);
 
-    // Draw panel border
-    this.renderer.drawBox(startX, startY, PANEL_WIDTH, PANEL_HEIGHT, COLORS.UI_BORDER);
+    // Fill entire panel area with solid black background
+    this.renderer.fillRect(startX, startY, PANEL_WIDTH, PANEL_HEIGHT, COLORS.BACKGROUND);
 
-    // Fill interior with black background
-    for (let row = 1; row < PANEL_HEIGHT - 1; row++) {
-      for (let col = 1; col < PANEL_WIDTH - 1; col++) {
-        this.renderer.drawChar(' ', startX + col, startY + row, COLORS.BACKGROUND);
-      }
-    }
+    // Draw panel border on top of background
+    this.renderer.drawBox(startX, startY, PANEL_WIDTH, PANEL_HEIGHT, COLORS.UI_BORDER);
 
     // Title
     const title = 'INVENTORY';
