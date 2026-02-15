@@ -1,6 +1,14 @@
 # BMAD (local only)
 .ignore/
 
+# Claude Code local settings
+.claude/settings.local.json
+
+# Project-specific temporary files
+*.zip
+reset-db.html
+UI_Example.png
+
 # Dependencies
 node_modules/
 npm-debug.log*
