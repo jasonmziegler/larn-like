@@ -41,6 +41,7 @@ export function createHero(name: string, playerId: string = 'local'): Hero {
     inventory: [],
     position: { x: 0, y: 0, depth: 1 },
     teethCurrency: 0,
+    reagentsConsumed: {},
     createdAt: Date.now(),
     isAlive: true,
   };

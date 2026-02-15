@@ -69,6 +69,7 @@ export interface Hero {
   inventory: EquipmentItem[];
   position: Position;
   teethCurrency: number;
+  reagentsConsumed: { [monsterType: string]: number };
   createdAt: number;
   isAlive: boolean;
 }

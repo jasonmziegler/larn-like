@@ -370,15 +370,18 @@ export async function processHeroDeath(
   const targetLevel = worldState.getLevel(newLevel);
 
   if (targetLevel) {
-    // Level already exists - add promoted monster to it
+    // Level already exists - add promoted monster immediately
     const updatedMonsters = [...targetLevel.monsters, promotedMonster];
     const updatedLevel = {
       ...targetLevel,
       monsters: updatedMonsters,
     };
     await worldState.saveLevel(updatedLevel);
+  } else {
+    // Level doesn't exist yet - save as pending promotion
+    // Monster will be injected when the level is first generated
+    await worldState.savePendingPromotion(promotedMonster, newLevel);
   }
-  // If target level doesn't exist yet, the monster will be added when the level is generated
 
   // Return processing result with summary
   return {

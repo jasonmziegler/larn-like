@@ -2,7 +2,7 @@
 // Raw IndexedDB API with Promise-wrapped transactions
 
 const DB_NAME = 'larn-like-db';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 export const STORE_NAMES = {
   WORLD_META: 'worldMeta',
@@ -12,6 +12,7 @@ export const STORE_NAMES = {
   DEATH_EVENTS: 'deathEvents',
   SOUL_SHRINES: 'soulShrines',
   TEETH_DROPS: 'teethDrops',
+  PENDING_PROMOTIONS: 'pendingPromotions',
 } as const;
 
 export type StoreName = (typeof STORE_NAMES)[keyof typeof STORE_NAMES];
@@ -69,6 +70,12 @@ function onUpgradeNeeded(db: IDBDatabase, oldVersion: number): void {
     shrineStore.createIndex('levelDepth', 'levelDepth');
     shrineStore.createIndex('isActive', 'isActive');
   }
+
+  if (oldVersion < 5) {
+    // Story 3.4 Task 0: Pending promotions for ungenerated levels
+    const pendingStore = db.createObjectStore(STORE_NAMES.PENDING_PROMOTIONS, { keyPath: 'id' });
+    pendingStore.createIndex('targetDepth', 'targetDepth');
+  }
 }
 
 export class WorldStore {
@@ -78,17 +85,46 @@ export class WorldStore {
     if (this.db) return;
 
     return new Promise<void>((resolve, reject) => {
+      console.log(`[WorldStore] Opening IndexedDB v${DB_VERSION}...`);
       const request = indexedDB.open(DB_NAME, DB_VERSION);
 
       request.onupgradeneeded = (event) => {
+        console.log(`[WorldStore] Upgrading from v${event.oldVersion} to v${DB_VERSION}`);
         const db = (event.target as IDBOpenDBRequest).result;
-        onUpgradeNeeded(db, event.oldVersion);
+        try {
+          onUpgradeNeeded(db, event.oldVersion);
+          console.log('[WorldStore] Upgrade complete');
+        } catch (err) {
+          console.error('[WorldStore] Upgrade failed:', err);
+          throw err;
+        }
       };
 
       request.onsuccess = (event) => {
+        console.log('[WorldStore] Database opened successfully');
         this.db = (event.target as IDBOpenDBRequest).result;
+
+        // Verify all expected stores exist
+        const expectedStores = Object.values(STORE_NAMES);
+        const missingStores = expectedStores.filter(
+          storeName => !this.db!.objectStoreNames.contains(storeName)
+        );
+
+        if (missingStores.length > 0) {
+          console.error(`[WorldStore] Database corrupt - missing stores: ${missingStores.join(', ')}`);
+          console.error('[WorldStore] Please delete IndexedDB and refresh');
+          this.db.close();
+          this.db = null;
+          reject(new Error(
+            `Database schema incomplete. Missing stores: ${missingStores.join(', ')}. ` +
+            `Please open DevTools → Application → IndexedDB → Delete "larn-like-db" and refresh.`
+          ));
+          return;
+        }
+
         // Close DB on versionchange so future opens aren't blocked
         this.db.onversionchange = () => {
+          console.warn('[WorldStore] Database version changed, closing connection');
           this.db?.close();
           this.db = null;
         };
@@ -96,10 +132,12 @@ export class WorldStore {
       };
 
       request.onerror = () => {
+        console.error('[WorldStore] Failed to open:', request.error);
         reject(new Error(`Failed to open IndexedDB: ${request.error?.message}`));
       };
 
       request.onblocked = () => {
+        console.error('[WorldStore] Database blocked - close other tabs');
         reject(new Error('IndexedDB open blocked by another connection. Close other tabs and retry.'));
       };
     });
@@ -267,6 +305,24 @@ export class WorldStore {
     } else {
       console.warn(`TeethDrop not found for ID: ${id}`);
     }
+  }
+
+  // --- Pending promotion operations ---
+
+  async savePendingPromotion(promotion: Record<string, unknown>): Promise<void> {
+    await this.put(STORE_NAMES.PENDING_PROMOTIONS, promotion);
+  }
+
+  async loadPendingPromotionsByDepth(depth: number): Promise<Record<string, unknown>[]> {
+    return this.getByIndex<Record<string, unknown>>(
+      STORE_NAMES.PENDING_PROMOTIONS,
+      'targetDepth',
+      depth
+    );
+  }
+
+  async deletePendingPromotion(id: string): Promise<void> {
+    await this.delete(STORE_NAMES.PENDING_PROMOTIONS, id);
   }
 
   // --- Bulk operations ---

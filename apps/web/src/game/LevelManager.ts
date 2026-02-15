@@ -57,6 +57,28 @@ export async function getOrGenerateLevel(depth: number, worldState: WorldState):
   // Mark as newly generated
   gameLevel.isNewlyGenerated = true;
 
+  // Inject pending promotions if any exist for this level
+  try {
+    console.log(`[LevelManager] Loading pending promotions for depth ${depth}...`);
+    const pendingPromotions = await worldState.loadPendingPromotions(depth);
+    console.log(`[LevelManager] Found ${pendingPromotions.length} pending promotions`);
+
+    if (pendingPromotions.length > 0) {
+      console.log(`Injecting ${pendingPromotions.length} pending promotion(s) into level ${depth}`);
+
+      // Add pending monsters to the level
+      gameLevel.monsters = [...gameLevel.monsters, ...pendingPromotions];
+
+      // Clean up pending promotions (they're now part of the level)
+      for (const monster of pendingPromotions) {
+        await worldState.deletePendingPromotion(monster.id);
+      }
+    }
+  } catch (err) {
+    // Pending promotions store might not exist yet (DB v4 or earlier)
+    console.warn('[LevelManager] Could not load pending promotions:', err);
+  }
+
   // Persist the newly generated level
   const record = gameLevelToRecord(gameLevel);
   await worldState.saveLevel(record);

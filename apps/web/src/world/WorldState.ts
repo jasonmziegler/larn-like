@@ -75,6 +75,10 @@ export interface DungeonChestRecord {
   teeth: number;
 }
 
+export interface PendingPromotionRecord extends MonsterRecord {
+  targetDepth: number;
+}
+
 const CURRENT_VERSION = 1;
 const DEFAULT_CREDITS = 3;
 const QUOTA_WARNING_THRESHOLD = 0.8; // 80%
@@ -223,6 +227,28 @@ export class WorldState {
 
   getStore(): WorldStore {
     return this.store;
+  }
+
+  // --- Pending promotions ---
+
+  async savePendingPromotion(monster: MonsterRecord, targetDepth: number): Promise<void> {
+    const promotion: PendingPromotionRecord = {
+      ...monster,
+      targetDepth,
+    };
+    await this.store.savePendingPromotion(promotion as unknown as Record<string, unknown>);
+  }
+
+  async loadPendingPromotions(depth: number): Promise<MonsterRecord[]> {
+    const records = await this.store.loadPendingPromotionsByDepth(depth);
+    return records.map(r => {
+      const { targetDepth, ...monster } = r as unknown as PendingPromotionRecord;
+      return monster;
+    });
+  }
+
+  async deletePendingPromotion(id: string): Promise<void> {
+    await this.store.deletePendingPromotion(id);
   }
 
   // --- World statistics for UI display ---

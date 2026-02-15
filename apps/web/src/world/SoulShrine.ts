@@ -14,16 +14,32 @@ export interface SoulShrine {
 }
 
 /**
- * Calculate soul energy value from a hero's level and stats.
- * Formula: (level * 10) + floor(strength + dexterity + constitution)
+ * Calculate soul energy from hero's level, stats, and reagent consumption.
+ * Formula: (level × 10) + floor(STR + DEX + CON) + (totalReagents × 2.5)
+ *
+ * Reagent multiplier makes consumption meaningful:
+ * - 10 reagents = +25 energy
+ * - 20 reagents = +50 energy
+ *
  * Minimum 10 energy even for low-level heroes.
  */
 export function calculateSoulEnergy(hero: Hero): number {
   const baseEnergy = hero.level * 10;
   const statBonus = Math.floor(
-    hero.currentStats.strength + hero.currentStats.dexterity + hero.currentStats.constitution
+    hero.currentStats.strength +
+    hero.currentStats.dexterity +
+    hero.currentStats.constitution
   );
-  return Math.max(10, baseEnergy + statBonus);
+
+  // Calculate total reagents consumed (all types)
+  const totalReagents = hero.reagentsConsumed
+    ? Object.values(hero.reagentsConsumed).reduce((sum, count) => sum + count, 0)
+    : 0;
+
+  // Apply 2.5× multiplier to reagent count
+  const reagentBonus = Math.floor(totalReagents * 2.5);
+
+  return Math.max(10, baseEnergy + statBonus + reagentBonus);
 }
 
 /**

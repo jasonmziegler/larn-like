@@ -6,12 +6,13 @@ import { InventoryPanel, groupReagents, getReagents } from './ui/InventoryPanel'
 import { MonsterInspectPanel } from './ui/MonsterInspectPanel';
 import { BlessingPanel } from './ui/BlessingPanel';
 import { EquipmentPanel } from './ui/EquipmentPanel';
+import { MerchantPanel } from './ui/MerchantPanel';
 import { DeathScreen } from './ui/DeathScreen';
-import { GAME_CONSTANTS, LAYOUT, MONSTER_DEFINITIONS, Hero } from '@larn-like/shared';
+import { GAME_CONSTANTS, LAYOUT, MONSTER_DEFINITIONS, Hero, EquipmentItem } from '@larn-like/shared';
 import { createHero } from './game/Hero';
 import { findEmptySpot, Position, DungeonGrid } from './game/DungeonGenerator';
 import { processCombat, processFlee, getAdjacentMonster, Monster } from './game/Combat';
-import { consumeReagent } from './game/Inventory';
+import { consumeReagent, purchaseItem } from './game/Inventory';
 import { createEmptySlots, equipItem, unequipItem, validateEquipmentChange } from './game/Equipment';
 import { attemptBlessing, type ShrineData } from './game/Blessing';
 import { WorldState, DungeonLevelRecord } from './world/WorldState';
@@ -37,7 +38,7 @@ interface Chest {
   char: string;
   color: string;
   name: string;
-  items: Entity[];
+  items: EquipmentItem[];
   teeth: number;
   id: string;
 }
@@ -174,7 +175,7 @@ function gameStateToLevelRecord(state: GameState): DungeonLevelRecord {
     chests: state.chests.map(chest => ({
       id: chest.id,
       pos: { x: chest.pos.x, y: chest.pos.y },
-      items: [], // Equipment items would go here
+      items: chest.items || [], // Equipment items persisted from death events
       teeth: chest.teeth,
     })),
     generatedAt: new Date().toISOString(),
@@ -283,7 +284,7 @@ async function initGame(heroName: string, worldState: WorldState, depth: number 
     char: '=',
     color: COLORS.TEXT_BRIGHT,
     name: 'chest',
-    items: [], // Equipment items if any
+    items: chestRecord.items || [], // Equipment items persisted from death events
     teeth: chestRecord.teeth || 0,
     id: chestRecord.id,
   }));
@@ -466,8 +467,9 @@ async function tryMove(state: GameState, dx: number, dy: number, worldState: Wor
     if (targetTile === '<') {
       // Staircase up
       if (state.currentDepth > 0) {
-        state.messages.unshift('Ascending...');
-        const newState = await transitionToLevel(state, state.currentDepth - 1, 'up', worldState);
+        const newDepth = state.currentDepth - 1;
+        state.messages.unshift(newDepth === 0 ? 'Returning to town...' : 'Ascending...');
+        const newState = await transitionToLevel(state, newDepth, 'up', worldState);
         onLevelTransition(newState);
       }
     } else if (targetTile === '>') {
@@ -478,6 +480,9 @@ async function tryMove(state: GameState, dx: number, dy: number, worldState: Wor
     }
     return;
   }
+
+  // Merchant tile is walkable (like floor)
+  // Hero can walk on 'M' tile freely
 
   // Monster collision = combat!
   const monster = state.monsters.find(m => m.pos.x === newX && m.pos.y === newY);
@@ -721,7 +726,7 @@ function getAdjacentShrine(
   return nearest;
 }
 
-function render(renderer: CanvasRenderer, hud: GameHUD, state: GameState, deathScreen: DeathScreen, inventoryPanel?: InventoryPanel, monsterInspectPanel?: MonsterInspectPanel, equipmentPanel?: EquipmentPanel, blessingPanel?: BlessingPanel | null): void {
+function render(renderer: CanvasRenderer, hud: GameHUD, state: GameState, deathScreen: DeathScreen, inventoryPanel?: InventoryPanel, monsterInspectPanel?: MonsterInspectPanel, equipmentPanel?: EquipmentPanel, merchantPanel?: MerchantPanel, blessingPanel?: BlessingPanel | null): void {
   // Show death screen if game over and death result exists
   if (state.gameOver && !state.victory && state.deathResult) {
     deathScreen.render(state.hero.name, state.deathResult);
@@ -787,20 +792,33 @@ function render(renderer: CanvasRenderer, hud: GameHUD, state: GameState, deathS
   const adjacent = getAdjacentMonster(state.heroPos.x, state.heroPos.y, state.monsters);
   hud.renderAdjacentMonster(adjacent, LAYOUT.ROW_MONSTER_INFO);
 
-  // If no adjacent monster, show adjacent shrine info
+  // If no adjacent monster, show adjacent shrine info or merchant info
   if (!adjacent) {
-    const adjacentShrine = getAdjacentShrine(state.heroPos.x, state.heroPos.y, state.shrines);
-    if (adjacentShrine) {
-      const shrineText = `† ${adjacentShrine.heroName}'s Shrine (Energy: ${adjacentShrine.soulEnergy}) - Press [b] to bless`;
-      renderer.drawText(shrineText.substring(0, 32), 1, LAYOUT.ROW_MONSTER_INFO, '#CC66FF');
+    // Check if hero is standing on merchant tile
+    const currentTile = state.dungeon[state.heroPos.y]?.[state.heroPos.x];
+    if (currentTile === 'M') {
+      const merchantText = 'MERCHANT - Press [m] to browse equipment';
+      renderer.drawText(merchantText, 1, LAYOUT.ROW_MONSTER_INFO, COLORS.TEXT_BRIGHT);
+    } else {
+      const adjacentShrine = getAdjacentShrine(state.heroPos.x, state.heroPos.y, state.shrines);
+      if (adjacentShrine) {
+        const shrineText = `† ${adjacentShrine.heroName}'s Shrine (Energy: ${adjacentShrine.soulEnergy}) - Press [b] to bless`;
+        renderer.drawText(shrineText.substring(0, 32), 1, LAYOUT.ROW_MONSTER_INFO, '#CC66FF');
+      } else {
+        // Draw equipment info on right side of row 2 (only when no shrine/merchant)
+        const weapon = state.hero.equipment.weapon;
+        const armor = state.hero.equipment.bodyArmor;
+        const equipText = `Wpn: ${weapon?.name || 'none'}  Arm: ${armor?.name || 'none'}`;
+        renderer.drawText(equipText, 35, LAYOUT.ROW_MONSTER_INFO, COLORS.TEXT_DIM);
+      }
     }
-  }
-
-  // Draw equipment info on right side of row 2
+  } else {
+    // Draw equipment info when monster is adjacent
     const weapon = state.hero.equipment.weapon;
     const armor = state.hero.equipment.bodyArmor;
     const equipText = `Wpn: ${weapon?.name || 'none'}  Arm: ${armor?.name || 'none'}`;
     renderer.drawText(equipText, 35, LAYOUT.ROW_MONSTER_INFO, COLORS.TEXT_DIM);
+  }
 
   // Draw action log (rows 24-29, newest at top)
   for (let i = 0; i < Math.min(LAYOUT.ACTION_LOG_LINES, state.messages.length); i++) {
@@ -822,6 +840,11 @@ function render(renderer: CanvasRenderer, hud: GameHUD, state: GameState, deathS
   // Draw equipment panel overlay if open
   if (equipmentPanel) {
     equipmentPanel.render(state.hero);
+  }
+
+  // Draw merchant panel overlay if open
+  if (merchantPanel) {
+    merchantPanel.render(state.hero);
   }
 
   // Draw blessing panel overlay if open
@@ -869,6 +892,7 @@ async function init(): Promise<void> {
   const inventoryPanel = new InventoryPanel(renderer);
   const monsterInspectPanel = new MonsterInspectPanel(renderer);
   const equipmentPanel = new EquipmentPanel(renderer);
+  const merchantPanel = new MerchantPanel(renderer);
   let blessingPanel: BlessingPanel | null = null;
   const deathScreen = new DeathScreen(renderer);
   let gameInputHandler: ((e: KeyboardEvent) => void) | null = null;
@@ -927,9 +951,14 @@ async function init(): Promise<void> {
       worldState.saveHero().catch(console.error);
     }, 60000); // 60 seconds
 
-    render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+    render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, merchantPanel, blessingPanel);
 
     gameInputHandler = (e: KeyboardEvent) => {
+      // If game is over, only allow 'r' to restart
+      if (state.gameOver && e.key.toLowerCase() !== 'r') {
+        return;
+      }
+
       // Monster inspection toggle key (x)
       if (e.key === 'x' || e.key === 'X') {
         e.preventDefault();
@@ -943,7 +972,7 @@ async function init(): Promise<void> {
             state.messages.unshift('No monster nearby to examine.');
           }
         }
-        render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+        render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, merchantPanel, blessingPanel);
         return;
       }
 
@@ -952,25 +981,25 @@ async function init(): Promise<void> {
         if (e.key === 'ArrowUp') {
           e.preventDefault();
           monsterInspectPanel.scrollHistoryUp();
-          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, merchantPanel, blessingPanel);
           return;
         }
         if (e.key === 'ArrowDown') {
           e.preventDefault();
           monsterInspectPanel.scrollHistoryDown();
-          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, merchantPanel, blessingPanel);
           return;
         }
         if (e.key === 'Escape') {
           e.preventDefault();
           monsterInspectPanel.close();
-          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, merchantPanel, blessingPanel);
           return;
         }
         // Any other key closes the panel
         e.preventDefault();
         monsterInspectPanel.close();
-        render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+        render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, merchantPanel, blessingPanel);
         return;
       }
 
@@ -988,7 +1017,7 @@ async function init(): Promise<void> {
 
         if (!adjacentShrine) {
           state.messages.unshift('No shrine nearby.');
-          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, merchantPanel, blessingPanel);
           return;
         }
 
@@ -999,7 +1028,7 @@ async function init(): Promise<void> {
           soulEnergy: adjacentShrine.soulEnergy,
         };
         blessingPanel = new BlessingPanel(renderer, shrineData, state.hero.equipment);
-        render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+        render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, merchantPanel, blessingPanel);
         return;
       }
 
@@ -1017,7 +1046,7 @@ async function init(): Promise<void> {
         // null means close without blessing
         if (selectedItem === null) {
           blessingPanel = null;
-          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, merchantPanel, blessingPanel);
           return;
         }
 
@@ -1029,12 +1058,13 @@ async function init(): Promise<void> {
         for (const [slotName, item] of Object.entries(state.hero.equipment)) {
           if (item && item.id === selectedItem.id) {
             // Update the equipment slot with the blessed/degraded/destroyed item
-            (state.hero.equipment as Record<string, typeof result.item>)[slotName] = result.item;
+            (state.hero.equipment as unknown as Record<string, typeof result.item>)[slotName] = result.item;
             break;
           }
         }
 
         // Save updated hero equipment
+        worldState.setCurrentHero(state.hero);
         worldState.saveHero().catch(console.error);
 
         // Consume the shrine
@@ -1050,7 +1080,7 @@ async function init(): Promise<void> {
         // Close blessing panel
         blessingPanel = null;
 
-        render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+        render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, merchantPanel, blessingPanel);
         return;
       }
 
@@ -1058,7 +1088,7 @@ async function init(): Promise<void> {
       if (e.key === 'i' || e.key === 'I' || e.key === 'Tab') {
         e.preventDefault();
         inventoryPanel.toggle();
-        render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+        render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, merchantPanel, blessingPanel);
         return;
       }
 
@@ -1066,7 +1096,7 @@ async function init(): Promise<void> {
       if (e.key === 'e' || e.key === 'E') {
         e.preventDefault();
         equipmentPanel.toggle();
-        render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+        render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, merchantPanel, blessingPanel);
         return;
       }
 
@@ -1075,7 +1105,7 @@ async function init(): Promise<void> {
         if (e.key === 'Escape') {
           e.preventDefault();
           inventoryPanel.close();
-          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, merchantPanel, blessingPanel);
           return;
         }
 
@@ -1090,7 +1120,7 @@ async function init(): Promise<void> {
               state.messages.unshift(result.message);
             }
           }
-          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, merchantPanel, blessingPanel);
           return;
         }
         return;
@@ -1106,7 +1136,7 @@ async function init(): Promise<void> {
         // Handle Escape - panel handles backing out of slot selection, main.ts handles closing
         if (e.key === 'Escape' && action.type === 'none') {
           equipmentPanel.close();
-          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, merchantPanel, blessingPanel);
           return;
         }
 
@@ -1140,10 +1170,65 @@ async function init(): Promise<void> {
           state.messages.unshift(action.message);
         }
 
-        render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+        render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, merchantPanel, blessingPanel);
         return;
       }
 
+      // While merchant panel is open, handle purchase and close
+      if (merchantPanel.isOpen) {
+        e.preventDefault();
+
+        // Handle arrow keys for pagination
+        if (e.key === 'ArrowUp') {
+          merchantPanel.scrollPageUp();
+          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, merchantPanel, blessingPanel);
+          return;
+        }
+        if (e.key === 'ArrowDown') {
+          merchantPanel.scrollPageDown();
+          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, merchantPanel, blessingPanel);
+          return;
+        }
+
+        // Handle input through panel
+        const action = merchantPanel.handleInput(e.key, state.hero);
+
+        if (action.type === 'close') {
+          merchantPanel.close();
+          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, merchantPanel, blessingPanel);
+          return;
+        }
+
+        if (action.type === 'purchase') {
+          // Attempt purchase
+          const result = purchaseItem(state.hero, action.item, action.item.price);
+          state.messages.unshift(result.message);
+
+          if (result.success) {
+            // Save hero state after purchase
+            worldState.setCurrentHero(state.hero);
+            worldState.saveHero().catch(console.error);
+          }
+        }
+
+        render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, merchantPanel, blessingPanel);
+        return;
+      }
+
+      // Merchant key - press 'm' while on merchant tile
+      if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault();
+        const currentTile = state.dungeon[state.heroPos.y]?.[state.heroPos.x];
+        if (currentTile === 'M') {
+          merchantPanel.open();
+        } else {
+          state.messages.unshift('You must be at the merchant to browse equipment.');
+        }
+        render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, merchantPanel, blessingPanel);
+        return;
+      }
+
+      // Movement keys
       let dx = 0;
       let dy = 0;
 
@@ -1166,21 +1251,31 @@ async function init(): Promise<void> {
           break;
         case 'r':
           if (state.gameOver) {
-            showTitleScreen();
+            // After death, go directly to character creation (bypassing title screen)
+            // First remove game input handler to prevent double input
+            if (gameInputHandler) {
+              document.removeEventListener('keydown', gameInputHandler);
+              gameInputHandler = null;
+            }
+            if (autoSaveTimer !== null) {
+              clearInterval(autoSaveTimer);
+              autoSaveTimer = null;
+            }
+            showNamingScreen();
             return;
           }
           break;
         default:
-          // Numpad movement (use e.key for numpad digits)
-          switch (e.key) {
-            case '8': dy = -1; break;              // up
-            case '2': dy = 1; break;               // down
-            case '4': dx = -1; break;              // left
-            case '6': dx = 1; break;               // right
-            case '7': dx = -1; dy = -1; break;     // up-left
-            case '9': dx = 1; dy = -1; break;      // up-right
-            case '1': dx = -1; dy = 1; break;      // down-left
-            case '3': dx = 1; dy = 1; break;       // down-right
+          // Numpad movement (use e.code to distinguish from regular number keys)
+          switch (e.code) {
+            case 'Numpad8': dy = -1; break;              // up
+            case 'Numpad2': dy = 1; break;               // down
+            case 'Numpad4': dx = -1; break;              // left
+            case 'Numpad6': dx = 1; break;               // right
+            case 'Numpad7': dx = -1; dy = -1; break;     // up-left
+            case 'Numpad9': dx = 1; dy = -1; break;      // up-right
+            case 'Numpad1': dx = -1; dy = 1; break;      // down-left
+            case 'Numpad3': dx = 1; dy = 1; break;       // down-right
             default: return;
           }
           break;
@@ -1192,14 +1287,14 @@ async function init(): Promise<void> {
         // Handle async tryMove with level transition callback
         tryMove(state, dx, dy, worldState, (newState) => {
           state = newState;
-          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, merchantPanel, blessingPanel);
         }).then(() => {
-          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+          render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, merchantPanel, blessingPanel);
         });
         return;
       }
 
-      render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, blessingPanel);
+      render(renderer, hud, state, deathScreen, inventoryPanel, monsterInspectPanel, equipmentPanel, merchantPanel, blessingPanel);
     };
 
     document.addEventListener('keydown', gameInputHandler);
