@@ -68,12 +68,22 @@ export interface TeethItemRecord {
   value: number;
 }
 
+export interface ReagentStack {
+  type: string; // Reagent monsterType (e.g., 'goblin', 'dragon')
+  count: number; // Stack count (max 20 per stack)
+}
+
 export interface DungeonChestRecord {
   id: string;
   pos: { x: number; y: number };
   items: EquipmentItem[];
+  reagents: ReagentStack[]; // Reagent stacks from hero inventory
   teeth: number;
+  isOpened: boolean; // Tracks whether chest has been opened
+  chestType: 'death' | 'overflow'; // Origin of chest
 }
+
+export const CHEST_CAPACITY = 5; // Max items per chest (equipment + reagent stacks)
 
 export interface PendingPromotionRecord extends MonsterRecord {
   targetDepth: number;
@@ -127,11 +137,11 @@ export class WorldState {
     this.state.lastSaved = lastSaved ?? new Date().toISOString();
 
     // Load current hero (the one that is alive)
-    const heroes = await this.store.getByIndex<Hero>(STORE_NAMES.HEROES, 'isAlive', 1);
-    // IndexedDB stores booleans oddly — also try true
-    const heroesTrue = await this.store.getByIndex<Hero>(STORE_NAMES.HEROES, 'isAlive', true as unknown as IDBValidKey);
-    const allAlive = [...heroes, ...heroesTrue];
-    this.state.currentHero = allAlive.length > 0 ? allAlive[0] : null;
+    // Note: Query all heroes and filter in memory because boolean index queries
+    // are unreliable across browsers ("The parameter is not a valid key" error)
+    const allHeroes = await this.store.getAll<Hero>(STORE_NAMES.HEROES);
+    const aliveHeroes = allHeroes.filter(h => h.isAlive);
+    this.state.currentHero = aliveHeroes.length > 0 ? aliveHeroes[0] : null;
 
     // Load death events
     this.state.deathEvents = await this.store.getAll<DeathEventRecord>(STORE_NAMES.DEATH_EVENTS);

@@ -1,8 +1,9 @@
 // DeathProcessor - handles hero death events and monster promotion logic
 
 import type { Hero, EquipmentItem } from '@larn-like/shared';
-import type { Monster } from '../game/Combat';
-import type { WorldState, DeathEventRecord, MonsterRecord, DungeonChestRecord } from './WorldState';
+import type { Monster, ReagentItem } from '../game/Combat';
+import type { WorldState, DeathEventRecord, MonsterRecord, DungeonChestRecord, ReagentStack } from './WorldState';
+import { CHEST_CAPACITY } from './WorldState';
 import { createEmptySlots, getEquippedItems, validateEquipmentChange } from '../game/Equipment';
 import { createTeethDrop } from './TeethDrop';
 import { createSoulShrine } from './SoulShrine';
@@ -33,59 +34,142 @@ export interface DeathProcessingResult {
 }
 
 /**
- * Spawn multiple chests to hold death overflow items and teeth.
- * Creates 1-4 chests based on item count and teeth amount.
+ * Distribute hero equipment, reagents, and teeth into chests using sequential filling.
+ * Fills existing unopened chests before creating new ones.
  *
- * @param items - Equipment items to distribute across chests
- * @param teeth - Total teeth to distribute across chests
+ * @param equipment - Equipment items from hero
+ * @param reagents - Reagent items from hero inventory
+ * @param teeth - Total teeth to distribute
+ * @param existingChests - Existing chests on the level
  * @param dungeonGrid - The dungeon grid for valid placement
  * @param occupiedPositions - Positions already occupied
  * @param gridWidth - Dungeon width
  * @param gridHeight - Dungeon height
- * @returns Array of chest records
+ * @returns Array of all chest records (existing + new)
  */
-function spawnDeathChests(
-  items: EquipmentItem[],
+function distributeDeathLoot(
+  equipment: EquipmentItem[],
+  reagents: ReagentItem[],
   teeth: number,
+  existingChests: DungeonChestRecord[],
   dungeonGrid: number[][],
   occupiedPositions: { x: number; y: number }[],
   gridWidth: number,
   gridHeight: number
 ): DungeonChestRecord[] {
-  // Calculate number of chests: 1 + floor(items/3) + (teeth>0 ? 1 : 0), capped at 4
-  const baseChests = 1;
-  const itemChests = Math.floor(items.length / 3);
-  const teethChest = teeth > 0 ? 1 : 0;
-  const chestCount = Math.min(4, baseChests + itemChests + teethChest);
+  // Find existing chests that can be filled (unopened OR opened-but-empty)
+  // Opened chests with capacity can be refilled and become unopened again
+  const availableChests = existingChests
+    .filter(chest => {
+      // Include unopened chests
+      if (!chest.isOpened) return true;
+      // Include opened chests that are empty (can be refilled)
+      const isEmpty = chest.items.length === 0 && chest.reagents.length === 0 && chest.teeth === 0;
+      return isEmpty;
+    })
+    .sort((a, b) => a.id.localeCompare(b.id)); // Oldest first
 
-  const chests: DungeonChestRecord[] = [];
-  const updatedOccupied = [...occupiedPositions];
-
-  // Distribute items round-robin across chests
-  const itemsPerChest: EquipmentItem[][] = Array.from({ length: chestCount }, () => []);
-  items.forEach((item, index) => {
-    itemsPerChest[index % chestCount].push(item);
+  // Track opened chests that are NOT empty (preserve as-is)
+  const openedNonEmptyChests = existingChests.filter(chest => {
+    if (!chest.isOpened) return false;
+    return chest.items.length > 0 || chest.reagents.length > 0 || chest.teeth > 0;
   });
 
-  // Distribute teeth evenly across chests
-  const teethPerChest = Math.floor(teeth / chestCount);
-  const remainderTeeth = teeth % chestCount;
+  const chests: DungeonChestRecord[] = [...availableChests];
+  let currentChestIndex = 0;
+  const updatedOccupied = [...occupiedPositions];
 
-  for (let i = 0; i < chestCount; i++) {
+  // Helper to get current chest capacity used
+  const getChestUsedCapacity = (chest: DungeonChestRecord): number => {
+    return chest.items.length + chest.reagents.length;
+  };
+
+  // Helper to create new chest
+  const createNewChest = (): DungeonChestRecord => {
     const chestPos = findEmptySpot(dungeonGrid, updatedOccupied, gridWidth, gridHeight);
     updatedOccupied.push(chestPos);
-
-    const chestTeeth = teethPerChest + (i < remainderTeeth ? 1 : 0);
-
-    chests.push({
-      id: `chest_death_${Date.now()}_${i}_${Math.random().toString(36).substring(2, 9)}`,
+    return {
+      id: `chest_death_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
       pos: chestPos,
-      items: itemsPerChest[i],
-      teeth: chestTeeth,
-    });
+      items: [],
+      reagents: [],
+      teeth: 0,
+      isOpened: false,
+      chestType: 'death',
+    };
+  };
+
+  // Distribute equipment first
+  for (const item of equipment) {
+    // Create new chest if needed
+    if (currentChestIndex >= chests.length) {
+      chests.push(createNewChest());
+    }
+
+    let chest = chests[currentChestIndex];
+
+    // Check capacity
+    if (getChestUsedCapacity(chest) >= CHEST_CAPACITY) {
+      currentChestIndex++;
+      if (currentChestIndex >= chests.length) {
+        chests.push(createNewChest());
+      }
+      chest = chests[currentChestIndex];
+    }
+
+    // Add equipment to chest
+    chest.items.push(item);
   }
 
-  return chests;
+  // Distribute reagents (with stacking)
+  for (const reagent of reagents) {
+    // Create new chest if needed
+    if (currentChestIndex >= chests.length) {
+      chests.push(createNewChest());
+    }
+
+    let chest = chests[currentChestIndex];
+
+    // Try to stack with existing reagent in chest
+    const existingStack = chest.reagents.find(r => r.type === reagent.monsterType);
+    if (existingStack && existingStack.count < 20) {
+      existingStack.count++;
+      continue; // Successfully stacked
+    }
+
+    // Check capacity for new stack
+    if (getChestUsedCapacity(chest) >= CHEST_CAPACITY) {
+      currentChestIndex++;
+      if (currentChestIndex >= chests.length) {
+        chests.push(createNewChest());
+      }
+      chest = chests[currentChestIndex];
+    }
+
+    // Create new reagent stack
+    chest.reagents.push({ type: reagent.monsterType, count: 1 });
+  }
+
+  // Distribute teeth evenly across all chests (only unopened/new chests)
+  if (chests.length > 0 && teeth > 0) {
+    const teethPerChest = Math.floor(teeth / chests.length);
+    chests.forEach(chest => {
+      chest.teeth += teethPerChest;
+    });
+    // Remainder teeth go to first chest
+    chests[0].teeth += teeth % chests.length;
+  }
+
+  // Mark any refilled chests as unopened (chests that were opened but got new items)
+  chests.forEach(chest => {
+    const hasNewContent = chest.items.length > 0 || chest.reagents.length > 0 || chest.teeth > 0;
+    if (hasNewContent) {
+      chest.isOpened = false; // Close the chest so it can be opened again
+    }
+  });
+
+  // Return ALL chests: non-empty opened (unchanged) + refilled/new chests
+  return [...openedNonEmptyChests, ...chests];
 }
 
 /**
@@ -157,8 +241,15 @@ export async function processHeroDeath(
   // Transfer hero equipment to killer monster
   const equipmentTransfer = transferEquipment(hero, killerMonster);
 
-  // Handle equipment overflow - create multiple chests if needed
-  if (equipmentTransfer.overflow.length > 0) {
+  // Extract reagents from hero inventory
+  const inventory = hero.inventory as unknown[] as (EquipmentItem | ReagentItem)[];
+  const reagentItems = inventory.filter(
+    (item): item is ReagentItem => (item as ReagentItem).type === 'reagent'
+  );
+
+  // Handle death overflow - distribute equipment, reagents, and teeth into chests
+  // Use sequential filling: fill existing chests before creating new ones
+  if (equipmentTransfer.overflow.length > 0 || reagentItems.length > 0 || hero.teethCurrency > 0) {
     const currentLevel = worldState.getLevel(currentDepth);
     if (currentLevel) {
       const occupiedPositions = [
@@ -167,17 +258,18 @@ export async function processHeroDeath(
         { x: hero.position.x, y: hero.position.y },
       ];
 
-      // Spawn 1-4 chests to hold overflow equipment (no teeth - teeth handled separately below)
-      const deathChests = spawnDeathChests(
+      // Distribute all death loot (equipment, reagents, teeth) using sequential filling
+      const updatedChests = distributeDeathLoot(
         equipmentTransfer.overflow,
-        0, // No teeth in equipment chests
+        reagentItems,
+        hero.teethCurrency,
+        currentLevel.chests || [],
         currentLevel.dungeon,
         occupiedPositions,
         currentLevel.dungeon[0].length,
         currentLevel.dungeon.length
       );
 
-      const updatedChests = [...(currentLevel.chests || []), ...deathChests];
       const updatedLevel = {
         ...currentLevel,
         chests: updatedChests,
@@ -233,97 +325,6 @@ export async function processHeroDeath(
 
   // Update death event to mark shrine creation
   deathEvent.soulShrineCreated = true;
-
-  // Scatter hero's teeth inventory to chests (25% current floor, 75% next floor)
-  const teethToScatter = hero.teethCurrency;
-  if (teethToScatter > 0) {
-    const currentFloorTeeth = Math.floor(teethToScatter * 0.25);
-    const nextFloorTeeth = teethToScatter - currentFloorTeeth;
-
-    // Get or create levels for chest placement
-    const currentLevel = worldState.getLevel(currentDepth);
-    const nextLevel = worldState.getLevel(currentDepth + 1);
-
-    // Scatter teeth on current floor
-    if (currentFloorTeeth > 0 && currentLevel) {
-      const occupiedPositions = [
-        ...currentLevel.monsters.map(m => m.pos),
-        ...(currentLevel.chests || []).map(c => c.pos),
-        { x: hero.position.x, y: hero.position.y },
-      ];
-
-      const chestPos = findEmptySpot(
-        currentLevel.dungeon,
-        occupiedPositions,
-        currentLevel.dungeon[0].length,
-        currentLevel.dungeon.length
-      );
-
-      const teethChest: DungeonChestRecord = {
-        id: `chest_teeth_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-        pos: chestPos,
-        items: [],
-        teeth: currentFloorTeeth,
-      };
-
-      const updatedChests = [...(currentLevel.chests || []), teethChest];
-      await worldState.saveLevel({ ...currentLevel, chests: updatedChests });
-    }
-
-    // Scatter teeth on next floor (if it exists)
-    if (nextFloorTeeth > 0 && nextLevel) {
-      const occupiedPositions = [
-        ...nextLevel.monsters.map(m => m.pos),
-        ...(nextLevel.chests || []).map(c => c.pos),
-      ];
-
-      const chestPos = findEmptySpot(
-        nextLevel.dungeon,
-        occupiedPositions,
-        nextLevel.dungeon[0].length,
-        nextLevel.dungeon.length
-      );
-
-      const teethChest: DungeonChestRecord = {
-        id: `chest_teeth_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-        pos: chestPos,
-        items: [],
-        teeth: nextFloorTeeth,
-      };
-
-      const updatedChests = [...(nextLevel.chests || []), teethChest];
-      await worldState.saveLevel({ ...nextLevel, chests: updatedChests });
-    } else if (nextFloorTeeth > 0 && !nextLevel) {
-      // Next floor doesn't exist yet - add remaining teeth to current floor
-      if (currentLevel) {
-        const occupiedPositions = [
-          ...currentLevel.monsters.map(m => m.pos),
-          ...(currentLevel.chests || []).map(c => c.pos),
-          { x: hero.position.x, y: hero.position.y },
-        ];
-
-        const chestPos = findEmptySpot(
-          currentLevel.dungeon,
-          occupiedPositions,
-          currentLevel.dungeon[0].length,
-          currentLevel.dungeon.length
-        );
-
-        const teethChest: DungeonChestRecord = {
-          id: `chest_teeth_fallback_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-          pos: chestPos,
-          items: [],
-          teeth: nextFloorTeeth,
-        };
-
-        const updatedLevel = worldState.getLevel(currentDepth);
-        if (updatedLevel) {
-          const updatedChests = [...(updatedLevel.chests || []), teethChest];
-          await worldState.saveLevel({ ...updatedLevel, chests: updatedChests });
-        }
-      }
-    }
-  }
 
   // Promote monster logic
   // Clone monster with evolved properties

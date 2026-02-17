@@ -11,11 +11,11 @@ import { DeathScreen } from './ui/DeathScreen';
 import { GAME_CONSTANTS, LAYOUT, MONSTER_DEFINITIONS, Hero, EquipmentItem } from '@larn-like/shared';
 import { createHero } from './game/Hero';
 import { findEmptySpot, Position, DungeonGrid } from './game/DungeonGenerator';
-import { processCombat, processFlee, getAdjacentMonster, Monster } from './game/Combat';
+import { processCombat, processFlee, getAdjacentMonster, Monster, ReagentItem, REAGENT_DEFINITIONS } from './game/Combat';
 import { consumeReagent, purchaseItem } from './game/Inventory';
 import { createEmptySlots, equipItem, unequipItem, validateEquipmentChange } from './game/Equipment';
 import { attemptBlessing, type ShrineData } from './game/Blessing';
-import { WorldState, DungeonLevelRecord } from './world/WorldState';
+import { WorldState, DungeonLevelRecord, ReagentStack } from './world/WorldState';
 import { getOrGenerateLevel } from './game/LevelManager';
 import { getTownSpawnPosition } from './game/TownGenerator';
 import { processHeroDeath, DeathProcessingResult } from './world/DeathProcessor';
@@ -39,7 +39,10 @@ interface Chest {
   color: string;
   name: string;
   items: EquipmentItem[];
+  reagents: ReagentStack[];
   teeth: number;
+  isOpened: boolean;
+  chestType: 'death' | 'overflow';
   id: string;
 }
 
@@ -176,7 +179,10 @@ function gameStateToLevelRecord(state: GameState): DungeonLevelRecord {
       id: chest.id,
       pos: { x: chest.pos.x, y: chest.pos.y },
       items: chest.items || [], // Equipment items persisted from death events
+      reagents: chest.reagents || [],
       teeth: chest.teeth,
+      isOpened: chest.isOpened,
+      chestType: chest.chestType,
     })),
     generatedAt: new Date().toISOString(),
   };
@@ -279,15 +285,21 @@ async function initGame(heroName: string, worldState: WorldState, depth: number 
   const items = [...level.items, ...teethItems];
 
   // Load chests from level
-  const chests: Chest[] = (level.chests || []).map(chestRecord => ({
-    pos: { x: chestRecord.pos.x, y: chestRecord.pos.y },
-    char: '=',
-    color: COLORS.TEXT_BRIGHT,
-    name: 'chest',
-    items: chestRecord.items || [], // Equipment items persisted from death events
-    teeth: chestRecord.teeth || 0,
-    id: chestRecord.id,
-  }));
+  const chests: Chest[] = (level.chests || []).map(chestRecord => {
+    const isOpened = chestRecord.isOpened ?? false;
+    return {
+      pos: { x: chestRecord.pos.x, y: chestRecord.pos.y },
+      char: isOpened ? '≡' : '=',
+      color: isOpened ? '#555555' : COLORS.TEXT_BRIGHT,
+      name: 'chest',
+      items: chestRecord.items || [], // Equipment items persisted from death events
+      reagents: chestRecord.reagents || [], // Reagent stacks
+      teeth: chestRecord.teeth || 0,
+      isOpened,
+      chestType: chestRecord.chestType || 'death',
+      id: chestRecord.id,
+    };
+  });
 
   // Load soul shrines for this level
   const shrineRecords = await worldState.getStore().loadShrinesByLevel(depth);
@@ -513,20 +525,26 @@ async function tryMove(state: GameState, dx: number, dy: number, worldState: Wor
       // to the persisted level; state.chests must reflect that before persistLevel
       const deathLevel = worldState.getLevel(state.currentDepth);
       if (deathLevel?.chests) {
-        state.chests = deathLevel.chests.map(c => ({
-          pos: { x: c.pos.x, y: c.pos.y },
-          char: '=',
-          color: COLORS.TEXT_BRIGHT,
-          name: 'chest',
-          items: [],
-          teeth: c.teeth || 0,
-          id: c.id,
-        }));
+        state.chests = deathLevel.chests.map(c => {
+          const isOpened = c.isOpened ?? false;
+          return {
+            pos: { x: c.pos.x, y: c.pos.y },
+            char: isOpened ? '≡' : '=',
+            color: isOpened ? '#555555' : COLORS.TEXT_BRIGHT,
+            name: 'chest',
+            items: c.items || [],
+            reagents: c.reagents || [],
+            teeth: c.teeth || 0,
+            isOpened,
+            chestType: c.chestType || 'death',
+            id: c.id,
+          };
+        });
       }
       // Save world state on hero death
       worldState.setCurrentHero(state.hero);
       await persistLevel(state, worldState);
-      worldState.saveWorld().catch(console.error);
+      await worldState.saveWorld();
     }
     return;
   }
@@ -563,20 +581,26 @@ async function tryMove(state: GameState, dx: number, dy: number, worldState: Wor
           // to the persisted level; state.chests must reflect that before persistLevel
           const fleeDeathLevel = worldState.getLevel(state.currentDepth);
           if (fleeDeathLevel?.chests) {
-            state.chests = fleeDeathLevel.chests.map(c => ({
-              pos: { x: c.pos.x, y: c.pos.y },
-              char: '=',
-              color: COLORS.TEXT_BRIGHT,
-              name: 'chest',
-              items: [],
-              teeth: c.teeth || 0,
-              id: c.id,
-            }));
+            state.chests = fleeDeathLevel.chests.map(c => {
+              const isOpened = c.isOpened ?? false;
+              return {
+                pos: { x: c.pos.x, y: c.pos.y },
+                char: isOpened ? '≡' : '=',
+                color: isOpened ? '#555555' : COLORS.TEXT_BRIGHT,
+                name: 'chest',
+                items: c.items || [],
+                reagents: c.reagents || [],
+                teeth: c.teeth || 0,
+                isOpened,
+                chestType: c.chestType || 'death',
+                id: c.id,
+              };
+            });
           }
           // Save world state on hero death
           worldState.setCurrentHero(state.hero);
           await persistLevel(state, worldState);
-          worldState.saveWorld().catch(console.error);
+          await worldState.saveWorld();
         }
         return;
       }
@@ -644,16 +668,79 @@ async function tryMove(state: GameState, dx: number, dy: number, worldState: Wor
   if (chestIndex !== -1) {
     const chest = state.chests[chestIndex];
 
-    // Collect teeth from chest
-    if (chest.teeth > 0) {
-      state.hero.teethCurrency += chest.teeth;
-      state.messages.unshift(`Found ${chest.teeth} teeth in a chest!`);
+    // Check if chest is already opened
+    if (chest.isOpened) {
+      state.messages.unshift('This chest has already been opened.');
+      return;
     }
 
-    // Remove chest from game state
-    state.chests.splice(chestIndex, 1);
+    // Check if chest is empty
+    if (chest.items.length === 0 && chest.reagents.length === 0 && chest.teeth === 0) {
+      chest.isOpened = true;
+      chest.char = '≡';
+      chest.color = '#555555';
+      state.messages.unshift('The chest is empty.');
+      await persistLevel(state, worldState);
+      return;
+    }
 
-    // Save hero and level state on chest pickup - await both operations
+    // Collect items
+    const messageLines: string[] = [];
+
+    // Collect equipment
+    if (chest.items.length > 0) {
+      state.hero.inventory.push(...chest.items);
+      const equipmentList = chest.items.map(item => `${item.name} (+${item.attackBonus} ATK, +${item.defenseBonus} DEF)`).join(', ');
+      messageLines.push(`Equipment: ${equipmentList}`);
+    }
+
+    // Collect reagents (with stacking)
+    if (chest.reagents.length > 0) {
+      for (const reagentStack of chest.reagents) {
+        const reagentDef = REAGENT_DEFINITIONS[reagentStack.type];
+        if (!reagentDef) continue; // Skip unknown reagent types
+
+        // Create individual reagent items for each count
+        for (let i = 0; i < reagentStack.count; i++) {
+          const reagentItem: ReagentItem = {
+            id: `reagent_${reagentStack.type}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+            name: reagentDef.name,
+            type: 'reagent',
+            monsterType: reagentStack.type,
+            statBonus: { stat: reagentDef.stat, amount: reagentDef.amount },
+          };
+          state.hero.inventory.push(reagentItem as unknown as EquipmentItem);
+        }
+      }
+
+      const reagentList = chest.reagents
+        .map(r => {
+          const def = REAGENT_DEFINITIONS[r.type];
+          return `${r.count}x ${def ? def.name : r.type}`;
+        })
+        .join(', ');
+      messageLines.push(`Reagents: ${reagentList}`);
+    }
+
+    // Collect teeth
+    if (chest.teeth > 0) {
+      state.hero.teethCurrency += chest.teeth;
+      messageLines.push(`${chest.teeth} teeth`);
+    }
+
+    // Mark chest as opened
+    chest.isOpened = true;
+    chest.char = '≡';
+    chest.color = '#555555';
+    chest.items = [];
+    chest.reagents = [];
+    chest.teeth = 0;
+
+    // Build and display message
+    const message = `You open the chest! Found: ${messageLines.join(', ')}`;
+    state.messages.unshift(message);
+
+    // Save hero and level state on chest opening
     worldState.setCurrentHero(state.hero);
     await worldState.saveHero();
     await persistLevel(state, worldState);
