@@ -1,6 +1,7 @@
 import { CanvasRenderer } from '../rendering/CanvasRenderer';
 import { Hero, GAME_CONSTANTS } from '@larn-like/shared';
 import { ReagentItem } from '../game/Combat';
+import { getCapacityString } from '../game/Inventory';
 
 const COLORS = GAME_CONSTANTS.COLORS;
 const PANEL_WIDTH = 36;
@@ -79,8 +80,9 @@ export class InventoryPanel {
     // Draw panel border on top of background
     this.renderer.drawBox(startX, startY, PANEL_WIDTH, PANEL_HEIGHT, COLORS.UI_BORDER);
 
-    // Title
-    const title = 'INVENTORY';
+    // Title with capacity
+    const capacity = getCapacityString(hero);
+    const title = `INVENTORY (${capacity})`;
     const titleX = startX + Math.floor((PANEL_WIDTH - title.length) / 2);
     this.renderer.drawText(title, titleX, startY + 1, COLORS.TEXT_BRIGHT);
 

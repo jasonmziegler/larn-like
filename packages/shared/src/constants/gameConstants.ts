@@ -8,6 +8,7 @@ export const GAME_CONSTANTS = {
 
   // Game mechanics
   MAX_DUNGEON_DEPTH: 15,
+  MAX_INVENTORY_SIZE: 20,
   STARTING_GOLD: 100,
   STARTING_HEALTH: 100,
   STARTING_LEVEL: 1,
@@ -27,6 +28,8 @@ export const GAME_CONSTANTS = {
     TEXT_BRIGHT: '#00FF00',
     TEXT_NORMAL: '#00CC00',
     TEXT_DIM: '#008800',
+    TEXT_POSITIVE: '#00FF00',  // Green for upgrades/positive changes
+    TEXT_NEGATIVE: '#FF0000',  // Red for downgrades/negative changes
     UI_BORDER: '#00AA00',
     HEALTH_CRITICAL: '#FF0000',
     GOLD_COLOR: '#FFFF00'

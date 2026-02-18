@@ -1,6 +1,7 @@
 import { CanvasRenderer } from '../rendering/CanvasRenderer';
 import { Hero, GAME_CONSTANTS, EquipmentSlotType, EquipmentItem } from '@larn-like/shared';
 import { isSlotBlocked } from '../game/Equipment';
+import { getCapacityString, sortInventory, SortMode, quickEquip } from '../game/Inventory';
 
 const COLORS = GAME_CONSTANTS.COLORS;
 const PANEL_WIDTH = 44;
@@ -29,12 +30,15 @@ export type EquipmentAction =
   | { type: 'none' }
   | { type: 'equip'; slotKey: EquipmentSlotType; item: EquipmentItem }
   | { type: 'unequip'; slotKey: EquipmentSlotType }
+  | { type: 'quick-equip'; message: string }
   | { type: 'error'; message: string };
 
 export class EquipmentPanel {
   private renderer: CanvasRenderer;
   private _isOpen: boolean = false;
   private selectedSlot: EquipmentSlotType | null = null;
+  private sortMode: SortMode = 'type';
+  private quickEquipMode: boolean = false;
 
   constructor(renderer: CanvasRenderer) {
     this.renderer = renderer;
@@ -103,10 +107,34 @@ export class EquipmentPanel {
   private handleInventorySelection(key: string, hero: Hero): EquipmentAction {
     if (!this.selectedSlot) return { type: 'none' };
 
+    // Handle sorting hotkeys
+    if (key.toLowerCase() === 't') {
+      this.sortMode = 'type';
+      this.quickEquipMode = false; // Reset quick-equip mode
+      return { type: 'none' };
+    }
+    if (key.toLowerCase() === 'v') {
+      this.sortMode = 'value';
+      this.quickEquipMode = false; // Reset quick-equip mode
+      return { type: 'none' };
+    }
+    if (key.toLowerCase() === 's') {
+      this.sortMode = 'slot';
+      this.quickEquipMode = false; // Reset quick-equip mode
+      return { type: 'none' };
+    }
+
+    // 'q' to enable quick-equip mode (next number press will quick-equip)
+    if (key.toLowerCase() === 'q') {
+      this.quickEquipMode = !this.quickEquipMode; // Toggle quick-equip mode
+      return { type: 'none' };
+    }
+
     // 'u' to unequip current item
     if (key.toLowerCase() === 'u') {
       const currentItem = hero.equipment[this.selectedSlot];
       if (currentItem) {
+        this.quickEquipMode = false; // Reset quick-equip mode
         const action: EquipmentAction = { type: 'unequip', slotKey: this.selectedSlot };
         this.selectedSlot = null; // Return to slot selection
         return action;
@@ -120,6 +148,26 @@ export class EquipmentPanel {
       const compatibleItems = this.getCompatibleItems(hero);
       if (num <= compatibleItems.length) {
         const item = compatibleItems[num - 1];
+
+        // If quick-equip mode is enabled, do quick-equip
+        if (this.quickEquipMode) {
+          // Find inventory index of the item
+          const inventoryIndex = hero.inventory.findIndex(invItem => invItem.id === item.id);
+          if (inventoryIndex !== -1) {
+            const result = quickEquip(hero, inventoryIndex);
+            this.quickEquipMode = false; // Reset mode
+            this.selectedSlot = null; // Return to slot selection
+
+            if (result.success) {
+              return { type: 'quick-equip', message: result.message };
+            } else {
+              return { type: 'error', message: result.message };
+            }
+          }
+        }
+
+        // Normal equip (original behavior)
+        this.quickEquipMode = false; // Reset mode
         const action: EquipmentAction = { type: 'equip', slotKey: this.selectedSlot, item };
         this.selectedSlot = null; // Return to slot selection
         return action;
@@ -132,8 +180,11 @@ export class EquipmentPanel {
   private getCompatibleItems(hero: Hero): EquipmentItem[] {
     if (!this.selectedSlot) return [];
 
-    // Hero inventory contains EquipmentItem objects
-    return hero.inventory.filter(item => item.slot === this.selectedSlot);
+    // Hero inventory contains EquipmentItem objects - filter to compatible items
+    const compatible = hero.inventory.filter(item => item.slot === this.selectedSlot);
+
+    // Apply current sort mode
+    return sortInventory(compatible, this.sortMode);
   }
 
   public render(hero: Hero): void {
@@ -225,17 +276,44 @@ export class EquipmentPanel {
     const slotInfo = SLOT_LAYOUT.find(s => s.key === this.selectedSlot);
     if (!slotInfo) return;
 
-    // Title
+    // Title with capacity
+    const capacity = getCapacityString(hero);
     const title = `SELECT ITEM FOR ${slotInfo.label.toUpperCase()}`;
     const titleX = startX + Math.floor((PANEL_WIDTH - title.length) / 2);
     this.renderer.drawText(title, titleX, startY + 1, COLORS.TEXT_BRIGHT);
+
+    // Show capacity and quick-equip mode indicator
+    const qIndicator = this.quickEquipMode ? ' [Q-MODE]' : '';
+    const capacityText = `Inventory: ${capacity}${qIndicator}`;
+    const capacityX = startX + PANEL_WIDTH - capacityText.length - 2;
+    const capacityColor = this.quickEquipMode ? COLORS.TEXT_BRIGHT : COLORS.TEXT_DIM;
+    this.renderer.drawText(capacityText, capacityX, startY + 1, capacityColor);
 
     // Separator
     const sep = '-'.repeat(PANEL_WIDTH - 2);
     this.renderer.drawText(sep, startX + 1, startY + 2, COLORS.TEXT_DIM);
 
-    // Show current item in slot
+    // Sort controls
     let row = startY + 3;
+    const sortLabel = 'Sort:';
+    this.renderer.drawText(sortLabel, startX + 2, row, COLORS.TEXT_NORMAL);
+
+    const sortX = startX + 2 + sortLabel.length + 1;
+    const typeText = this.sortMode === 'type' ? '[Type]' : ' Type ';
+    const valueText = this.sortMode === 'value' ? '[Value]' : ' Value ';
+    const slotText = this.sortMode === 'slot' ? '[Slot]' : ' Slot ';
+
+    const typeColor = this.sortMode === 'type' ? COLORS.TEXT_BRIGHT : COLORS.TEXT_DIM;
+    const valueColor = this.sortMode === 'value' ? COLORS.TEXT_BRIGHT : COLORS.TEXT_DIM;
+    const slotColor = this.sortMode === 'slot' ? COLORS.TEXT_BRIGHT : COLORS.TEXT_DIM;
+
+    this.renderer.drawText(typeText, sortX, row, typeColor);
+    this.renderer.drawText(valueText, sortX + typeText.length, row, valueColor);
+    this.renderer.drawText(slotText, sortX + typeText.length + valueText.length, row, slotColor);
+    row++;
+    row++; // Skip a line after sort controls
+
+    // Show current item in slot
     const currentItem = hero.equipment[this.selectedSlot];
     if (currentItem) {
       this.renderer.drawText('Currently equipped:', startX + 2, row, COLORS.TEXT_NORMAL);
@@ -263,10 +341,14 @@ export class EquipmentPanel {
 
       for (let i = 0; i < Math.min(7, compatibleItems.length); i++) {
         const item = compatibleItems[i];
+        const isEquipped = this.isItemEquipped(hero, item.id);
+
+        // Item name line with [Equipped] indicator
+        const equippedTag = isEquipped ? '[E] ' : '';
         const attackStr = item.attackBonus > 0 ? `+${item.attackBonus} ATK` : '';
         const defenseStr = item.defenseBonus > 0 ? `+${item.defenseBonus} DEF` : '';
         const stats = [attackStr, defenseStr].filter(s => s).join(' ');
-        const itemText = stats ? `${i + 1}. ${item.name} (${stats})` : `${i + 1}. ${item.name}`;
+        const itemText = stats ? `${i + 1}. ${equippedTag}${item.name} (${stats})` : `${i + 1}. ${equippedTag}${item.name}`;
 
         // Truncate if too long
         const maxWidth = PANEL_WIDTH - 4;
@@ -274,16 +356,47 @@ export class EquipmentPanel {
           ? itemText.substring(0, maxWidth - 3) + '...'
           : itemText;
 
-        this.renderer.drawText(displayText, startX + 2, row, COLORS.TEXT_NORMAL);
+        const itemColor = isEquipped ? COLORS.TEXT_BRIGHT : COLORS.TEXT_NORMAL;
+        this.renderer.drawText(displayText, startX + 2, row, itemColor);
         row++;
+
+        // Show comparison with currently equipped item (if not the same item)
+        if (!isEquipped && currentItem) {
+          const atkComparison = this.getStatComparison(item.attackBonus, currentItem.attackBonus, 'ATK');
+          const defComparison = this.getStatComparison(item.defenseBonus, currentItem.defenseBonus, 'DEF');
+
+          const comparisonParts: string[] = [];
+          if (item.attackBonus !== currentItem.attackBonus) {
+            comparisonParts.push(atkComparison.text);
+          }
+          if (item.defenseBonus !== currentItem.defenseBonus) {
+            comparisonParts.push(defComparison.text);
+          }
+
+          if (comparisonParts.length > 0) {
+            const comparisonText = `   Change: ${comparisonParts.join(', ')}`;
+
+            // Use color based on overall change (positive if any stat improves)
+            const totalChange = (item.attackBonus - currentItem.attackBonus) + (item.defenseBonus - currentItem.defenseBonus);
+            const compColor = totalChange > 0 ? COLORS.TEXT_POSITIVE : totalChange < 0 ? COLORS.TEXT_NEGATIVE : COLORS.TEXT_NORMAL;
+
+            this.renderer.drawText(comparisonText, startX + 2, row, compColor);
+            row++;
+          }
+        } else if (!isEquipped && !currentItem) {
+          // Show that this would be a new equip
+          const changeText = `   Change: +${item.attackBonus} ATK, +${item.defenseBonus} DEF`;
+          this.renderer.drawText(changeText, startX + 2, row, COLORS.TEXT_POSITIVE);
+          row++;
+        }
       }
     }
 
     // Instructions
     const instrRow = startY + PANEL_HEIGHT - 2;
     const instr = compatibleItems.length > 0
-      ? '[1-9] Equip  [U] Unequip  [ESC] Back'
-      : '[U] Unequip  [ESC] Back';
+      ? '[1-9] Equip  [Q] Quick-equip  [U] Unequip'
+      : '[U] Unequip  [T/V/S] Sort  [ESC] Back';
     const instrX = startX + Math.floor((PANEL_WIDTH - instr.length) / 2);
     this.renderer.drawText(instr, instrX, instrRow, COLORS.TEXT_DIM);
   }
@@ -297,5 +410,28 @@ export class EquipmentPanel {
       }
     }
     return total;
+  }
+
+  /**
+   * Check if an item is currently equipped
+   */
+  private isItemEquipped(hero: Hero, itemId: string): boolean {
+    return Object.values(hero.equipment).some(equipped => equipped?.id === itemId);
+  }
+
+  /**
+   * Get comparison text and color for stat difference
+   * Returns color and formatted text (e.g., "+2 ATK" in green, "-1 DEF" in red)
+   */
+  private getStatComparison(newValue: number, currentValue: number, statName: string): { text: string; color: string } {
+    const diff = newValue - currentValue;
+
+    if (diff > 0) {
+      return { text: `+${diff} ${statName}`, color: COLORS.TEXT_POSITIVE };
+    } else if (diff < 0) {
+      return { text: `${diff} ${statName}`, color: COLORS.TEXT_NEGATIVE };
+    } else {
+      return { text: `±0 ${statName}`, color: COLORS.TEXT_NORMAL };
+    }
   }
 }

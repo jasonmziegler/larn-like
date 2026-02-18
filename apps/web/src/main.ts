@@ -12,7 +12,7 @@ import { GAME_CONSTANTS, LAYOUT, MONSTER_DEFINITIONS, Hero, EquipmentItem } from
 import { createHero } from './game/Hero';
 import { findEmptySpot, Position, DungeonGrid } from './game/DungeonGenerator';
 import { processCombat, processFlee, getAdjacentMonster, Monster, ReagentItem, REAGENT_DEFINITIONS } from './game/Combat';
-import { consumeReagent, purchaseItem } from './game/Inventory';
+import { consumeReagent, purchaseItem, canAddToInventory, isInventoryFull } from './game/Inventory';
 import { createEmptySlots, equipItem, unequipItem, validateEquipmentChange } from './game/Equipment';
 import { attemptBlessing, type ShrineData } from './game/Blessing';
 import { WorldState, DungeonLevelRecord, ReagentStack } from './world/WorldState';
@@ -684,6 +684,14 @@ async function tryMove(state: GameState, dx: number, dy: number, worldState: Wor
       return;
     }
 
+    // Check inventory capacity for all items in chest
+    const totalItemsInChest = chest.items.length + chest.reagents.reduce((sum, r) => sum + r.count, 0);
+
+    if (!canAddToInventory(state.hero, totalItemsInChest)) {
+      state.messages.unshift(`Inventory is full. Cannot collect ${totalItemsInChest} items. Drop items first.`);
+      return;
+    }
+
     // Collect items
     const messageLines: string[] = [];
 
@@ -1243,6 +1251,11 @@ async function init(): Promise<void> {
               state.messages.unshift(result.error || 'Failed to equip item');
             }
           }
+        } else if (action.type === 'quick-equip') {
+          // Quick-equip already completed the swap, just show message and save
+          state.messages.unshift(action.message);
+          worldState.setCurrentHero(state.hero);
+          worldState.saveHero().catch(console.error);
         } else if (action.type === 'unequip') {
           const result = unequipItem(state.hero.inventory, state.hero.equipment, action.slotKey);
           if (result.success && result.removedItem) {
