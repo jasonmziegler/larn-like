@@ -455,7 +455,12 @@ describe('Combat', () => {
 
       // Verify monster's equipment bonus affects damage calculation
       // Base monster attack is 5, +5 from weapon = 10 total attack
-      expect(result.damageReceived).toBeGreaterThan(0);
+      // Either damage was dealt OR the hero evaded
+      if (result.evaded) {
+        expect(result.damageReceived).toBe(0);
+      } else {
+        expect(result.damageReceived).toBeGreaterThan(0);
+      }
     });
 
     it('should apply monster equipment defense bonus in combat', () => {

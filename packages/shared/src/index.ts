@@ -12,6 +12,7 @@ export * from './types/api.types';
 export * from './constants/gameConstants';
 export * from './constants/items';
 export * from './constants/monsters';
+export * from './constants/merchantInventory';
 
 // Utils
 export * from './utils/validation';

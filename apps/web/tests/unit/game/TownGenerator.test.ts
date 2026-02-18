@@ -58,6 +58,34 @@ describe('TownGenerator', () => {
       expect(result1.entrancePos).toEqual(result2.entrancePos);
       expect(result1.grid).toEqual(result2.grid);
     });
+
+    it('should include a merchant tile (M)', () => {
+      const { grid } = generateTown({ width: 40, height: 20 });
+
+      // Find merchant tile
+      let foundMerchant = false;
+      for (let y = 0; y < 20; y++) {
+        for (let x = 0; x < 40; x++) {
+          if (grid[y][x] === 'M') {
+            foundMerchant = true;
+            break;
+          }
+        }
+        if (foundMerchant) break;
+      }
+
+      expect(foundMerchant).toBe(true);
+    });
+
+    it('should place merchant in center-north area', () => {
+      const { grid } = generateTown({ width: 40, height: 20 });
+
+      // Expected merchant at center-north (around y=5, x=20)
+      const expectedX = Math.floor(40 / 2);
+      const expectedY = 5;
+
+      expect(grid[expectedY][expectedX]).toBe('M');
+    });
   });
 
   describe('getTownSpawnPosition', () => {

@@ -46,6 +46,11 @@ export function generateTown(config: TownConfig = DEFAULT_TOWN_CONFIG): {
   const entranceY = height - 5; // 5 tiles up from bottom
   grid[entranceY][entranceX] = '>';
 
+  // Place merchant in center-north area
+  const merchantX = Math.floor(width / 2);
+  const merchantY = 5; // Near north
+  grid[merchantY][merchantX] = 'M';
+
   return {
     grid,
     entrancePos: { x: entranceX, y: entranceY },

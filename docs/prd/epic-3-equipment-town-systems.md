@@ -30,16 +30,17 @@ so that I can spend collected teeth to purchase better starting equipment before
 
 ## Story 3.3: Dungeon Chest System for Equipment Overflow
 As a player exploring dungeons,
-I want to find equipment in dungeon chests,
-so that I can discover additional gear beyond basic merchant purchases and monster drops.
+I want to find hero equipment, reagents, and teeth in dungeon chests,
+so that I can discover loot from previous hero deaths and benefit from the persistent world economy.
 
 ### Acceptance Criteria
 1. Dungeon chests appear as interactive ASCII symbols (chest icon) in dungeon rooms
-2. Chest interaction reveals contained equipment with proper inventory management
-3. Equipment overflow from monster inventory limits automatically populates nearby chests
+2. Chest interaction reveals contained equipment, reagents, and teeth with proper inventory management
+3. Hero death distributes equipment, reagents, and teeth into chests using sequential filling logic
 4. Chest contents persist in world state and can be discovered by any future hero
 5. Visual feedback distinguishes unopened chests from opened/empty chests
-6. Chest spawning algorithm ensures reasonable distribution without overcrowding levels
+6. Chests are created only on hero death or monster overflow (no random generation)
+7. Existing chests are filled sequentially before creating new chests
 
 ## Story 3.4: Monster Equipment Slot Management
 As a system,
