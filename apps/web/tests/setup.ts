@@ -1,5 +1,6 @@
 // Vitest setup file for frontend tests
 import { beforeAll, afterEach, afterAll } from 'vitest';
+import 'fake-indexeddb/auto';
 
 // Mock Canvas API for testing
 export function mockCanvas() {
